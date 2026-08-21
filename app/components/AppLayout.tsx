@@ -61,7 +61,10 @@ export default function AppLayout({ shop, plan, children }: AppLayoutProps) {
     <div className={styles.shell}>
       <aside className={styles.sidebar}>
         <div className={styles.brand}>
-          <div className={styles.brandIcon}>S</div>
+          <div className={styles.brandIcon} aria-label="SyncMaster">
+            <span className={styles.monogramS}>S</span>
+            <span className={styles.monogramM}>M</span>
+          </div>
           <span className={styles.brandName}>SyncMaster</span>
         </div>
         <div className={styles.planBadgeWrap}>
