@@ -252,3 +252,90 @@ export async function fetchProductByHandle(
     })),
   };
 }
+
+export interface OrderLite {
+  id: string;
+  createdAt: string;
+  total: number;
+  lineItems: Array<{ title: string; quantity: number; revenue: number }>;
+}
+
+const ORDERS_QUERY = `#graphql
+  query SyncMasterOrders($q: String!, $cursor: String) {
+    orders(first: 100, after: $cursor, query: $q, sortKey: CREATED_AT) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        id
+        createdAt
+        currentTotalPriceSet { shopMoney { amount } }
+        lineItems(first: 50) {
+          nodes {
+            title
+            quantity
+            originalTotalSet { shopMoney { amount } }
+          }
+        }
+      }
+    }
+  }
+`;
+
+interface OrdersResponse {
+  data?: {
+    orders: {
+      pageInfo: { hasNextPage: boolean; endCursor: string | null };
+      nodes: Array<{
+        id: string;
+        createdAt: string;
+        currentTotalPriceSet: { shopMoney: { amount: string } };
+        lineItems: {
+          nodes: Array<{
+            title: string;
+            quantity: number;
+            originalTotalSet: { shopMoney: { amount: string } };
+          }>;
+        };
+      }>;
+    };
+  };
+  errors?: Array<{ message: string }>;
+}
+
+/**
+ * Fetch orders created on/after `sinceISO`, up to `cap`. Reports `truncated`
+ * when the cap is hit (no silent truncation). Requires read_orders.
+ */
+export async function fetchOrders(
+  shop: string,
+  sinceISO: string,
+  cap = 500,
+): Promise<{ orders: OrderLite[]; truncated: boolean }> {
+  const orders: OrderLite[] = [];
+  let cursor: string | null = null;
+  const q = `created_at:>=${sinceISO}`;
+
+  for (;;) {
+    const json = (await adminGraphql(shop, ORDERS_QUERY, { q, cursor })) as OrdersResponse;
+    if (json.errors?.length) {
+      throw new Error(`Failed to fetch orders from ${shop}: ${json.errors.map((e) => e.message).join("; ")}`);
+    }
+    const page = json.data?.orders;
+    if (!page) break;
+    for (const o of page.nodes) {
+      orders.push({
+        id: o.id,
+        createdAt: o.createdAt,
+        total: Number(o.currentTotalPriceSet.shopMoney.amount) || 0,
+        lineItems: o.lineItems.nodes.map((li) => ({
+          title: li.title,
+          quantity: li.quantity,
+          revenue: Number(li.originalTotalSet.shopMoney.amount) || 0,
+        })),
+      });
+      if (orders.length >= cap) return { orders, truncated: page.pageInfo.hasNextPage };
+    }
+    if (!page.pageInfo.hasNextPage) break;
+    cursor = page.pageInfo.endCursor;
+  }
+  return { orders, truncated: false };
+}
