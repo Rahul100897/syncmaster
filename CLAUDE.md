@@ -109,9 +109,13 @@ Pro ($29/mo, 7-day trial, covers ALL connected stores):
 - Webhooks: always verify HMAC before processing
 - Rate limits: exponential backoff on all mutations
 - Required scopes: read_products, write_products, read_inventory,
-  write_inventory, read_metafields, write_metafields,
-  read_metaobjects, write_metaobjects, read_orders, write_orders,
-  read_publications, write_publications
+  write_inventory, read_metaobjects, write_metaobjects,
+  read_orders, write_orders, read_publications, write_publications
+- NOTE: read_metafields/write_metafields are NOT valid standalone scopes
+  (Shopify rejects them). Metafield access is granted implicitly by the
+  owning resource's scope — e.g. read_products/write_products covers product
+  metafields, read_orders covers order metafields. So metafield sync still
+  works without a dedicated scope. Metaobjects DO have their own scopes.
 
 ---
 

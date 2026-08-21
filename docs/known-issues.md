@@ -23,3 +23,10 @@ Format: [Date] [Phase] [Description] [Status: open/fixed]
   between `@shopify/shopify-app-remix` (wanted 13.1.0) and
   `@shopify/shopify-app-session-storage-prisma` (pulled 12.3.0), which caused a
   TS Session type mismatch. Status: fixed.
+
+- [2026-08-21] [Phase 1] `shopify app dev` rejected scopes
+  `read_metafields`/`write_metafields` as invalid — they are not standalone
+  Shopify access scopes (removed by Shopify). Metafield access is implicit via
+  the owning resource scope (read_products covers product metafields, etc.), so
+  metafield sync is unaffected. Removed them from shopify.app.toml, .env,
+  .env.example, and corrected CLAUDE.md. Status: fixed.
