@@ -36,3 +36,7 @@ use_legacy_install_flow = false
 
 [auth]
 redirect_urls = [ ]
+
+[build]
+automatically_update_urls_on_dev = true
+dev_store_url = "rahul-developer-store.myshopify.com"
