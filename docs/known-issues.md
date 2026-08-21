@@ -44,3 +44,17 @@ Format: [Date] [Phase] [Description] [Status: open/fixed]
 - [2026-08-21] [Phase 2] Route-adjacent CSS modules must NOT live in app/routes/
   (flat-routes parses them as route modules and the build fails). jobs pulse CSS
   lives in app/styles/. Status: fixed.
+
+- [2026-08-21] [Phase 3] Snapshots upload to Cloudflare R2; the local `.env` has
+  empty R2_* vars, so snapshot create/restore/download only work once R2
+  credentials are set (Railway provides them in prod). `createSnapshot` marks
+  the row `failed` and surfaces the real error if R2 isn't configured, and the
+  pre-sync auto-snapshot logs+continues rather than hard-blocking dev. Status: open (env, expected).
+- [2026-08-21] [Phase 3] Sync rules: field enable/disable + direction gates are
+  applied in the write path (inventory direction, metafield/metaobject toggles).
+  Price markup/fixed/rounding and the inventory buffer % are saved to SyncRule
+  and fully editable in the UI, but not yet applied inside productSet/inventory
+  writes — that wiring is a follow-on. Status: open (by phase).
+- [2026-08-21] [Phase 3] Analytics + payouts fetch orders live via GraphQL
+  (read_orders) capped at 500 orders/store per range (reported as truncated when
+  hit); bulkOperationRunQuery is the future path for very high-volume stores. Status: open (by design).
