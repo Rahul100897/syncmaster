@@ -1,8 +1,10 @@
 /**
- * Anomaly detection (implemented in Phase 2).
+ * Anomaly detection (Phase 2).
  * Rules (see CLAUDE.md): inventory change > 10x current value → flag;
- * price change > 50% → flag. Flagged events are paused and alerted.
+ * price change > 50% → flag. Flagged events are paused (not written) and
+ * surfaced on the dashboard with Approve / Reject actions.
  */
+import prisma from "../db.server";
 
 export interface AnomalyResult {
   anomaly: boolean;
@@ -30,4 +32,25 @@ export function checkAnomaly(
     }
   }
   return { anomaly: false };
+}
+
+/**
+ * Record an alert for a detected anomaly. Writes an ActivityLog entry and logs
+ * to the console. Email alerting is added with the health monitor in Phase 3.
+ */
+export async function sendAnomalyAlert(params: {
+  shopId: string;
+  resourceId: string;
+  reason: string;
+}): Promise<void> {
+  console.warn(
+    `[anomaly] ${params.shopId} — ${params.resourceId}: ${params.reason} (paused)`,
+  );
+  await prisma.activityLog.create({
+    data: {
+      shopId: params.shopId,
+      action: `Anomaly paused: ${params.resourceId} — ${params.reason}`,
+      resourceType: "anomaly",
+    },
+  });
 }

@@ -5,16 +5,29 @@ name = "SyncMaster"
 application_url = "https://example.com"
 embedded = true
 
+[build]
+automatically_update_urls_on_dev = true
+dev_store_url = "rahul-developer-store.myshopify.com"
+
 [webhooks]
 api_version = "2025-07"
 
+  # ---- SyncMaster real-time sync webhooks (Phase 2) ----
   [[webhooks.subscriptions]]
-  topics = [ "app/uninstalled" ]
-  uri = "/webhooks/app/uninstalled"
+  topics = [ "products/create" ]
+  uri = "/webhooks/products/create"
 
   [[webhooks.subscriptions]]
-  topics = [ "app/scopes_update" ]
-  uri = "/webhooks/app/scopes_update"
+  topics = [ "products/update" ]
+  uri = "/webhooks/products/update"
+
+  [[webhooks.subscriptions]]
+  topics = [ "products/delete" ]
+  uri = "/webhooks/products/delete"
+
+  [[webhooks.subscriptions]]
+  topics = [ "inventory_levels/update" ]
+  uri = "/webhooks/inventory_levels/update"
 
   [[webhooks.subscriptions]]
   uri = "/webhooks/customers/data_request"
@@ -28,6 +41,14 @@ api_version = "2025-07"
   uri = "/webhooks/shop/redact"
   compliance_topics = [ "shop/redact" ]
 
+  [[webhooks.subscriptions]]
+  topics = [ "app/scopes_update" ]
+  uri = "/webhooks/app/scopes_update"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
+  uri = "/webhooks/app/uninstalled"
+
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 scopes = "read_products,write_products,read_inventory,write_inventory,read_metaobjects,write_metaobjects,read_orders,write_orders,read_publications,write_publications"
@@ -36,7 +57,3 @@ use_legacy_install_flow = false
 
 [auth]
 redirect_urls = [ ]
-
-[build]
-automatically_update_urls_on_dev = true
-dev_store_url = "rahul-developer-store.myshopify.com"
