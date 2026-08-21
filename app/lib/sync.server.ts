@@ -185,7 +185,7 @@ export async function dryRun(
 // destination — only created or updated.
 // ---------------------------------------------------------------------------
 import { adminGraphql, type ProductLite as _ProductLite } from "./graphql.server";
-import { checkAnomaly } from "./anomaly.server";
+import { checkAnomaly, sendAnomalyAlert } from "./anomaly.server";
 
 const SOURCE_SKU_QUERY = `#graphql
   query SmInventorySku($id: ID!) {
@@ -377,6 +377,7 @@ export async function applyInventorySync(input: InventorySyncInput): Promise<voi
       status: "anomaly",
       error: anomaly.reason,
     });
+    await sendAnomalyAlert({ shopId: input.targetShop, resourceId: sku, reason: anomaly.reason ?? "anomaly" });
     return;
   }
 
@@ -557,4 +558,63 @@ export async function runMigration(jobId: string): Promise<void> {
     });
     throw error;
   }
+}
+
+/**
+ * Force-apply an inventory quantity to a target variant by SKU, bypassing the
+ * anomaly gate. Used when a merchant approves a paused anomaly.
+ */
+export async function forceInventoryBySku(params: {
+  jobId: string;
+  targetShop: string;
+  sku: string;
+  quantity: number;
+}): Promise<void> {
+  const tvJson = (await adminGraphql(params.targetShop, TARGET_VARIANT_BY_SKU, {
+    q: `sku:${JSON.stringify(params.sku)}`,
+  })) as TargetVariantResp;
+  const targetVariant = tvJson.data?.productVariants.nodes[0];
+  if (!targetVariant?.inventoryItem) {
+    await logEvent({
+      jobId: params.jobId,
+      resourceType: "inventory",
+      resourceId: params.sku,
+      field: "inventory",
+      status: "failed",
+      error: `No variant with SKU "${params.sku}" on ${params.targetShop}`,
+    });
+    return;
+  }
+  const locationId = await firstLocationId(params.targetShop);
+  if (!locationId) {
+    await logEvent({
+      jobId: params.jobId,
+      resourceType: "inventory",
+      resourceId: params.sku,
+      field: "inventory",
+      status: "failed",
+      error: `No active location on ${params.targetShop}`,
+    });
+    return;
+  }
+  const setJson = await adminGraphql(params.targetShop, INVENTORY_SET, {
+    input: {
+      name: "available",
+      reason: "correction",
+      ignoreCompareQuantity: true,
+      quantities: [
+        { inventoryItemId: targetVariant.inventoryItem.id, locationId, quantity: params.quantity },
+      ],
+    },
+  });
+  const err = firstUserError(setJson, "inventorySetQuantities");
+  await logEvent({
+    jobId: params.jobId,
+    resourceType: "inventory",
+    resourceId: params.sku,
+    field: "inventory",
+    newValue: String(params.quantity),
+    status: err ? "failed" : "success",
+    error: err ?? undefined,
+  });
 }

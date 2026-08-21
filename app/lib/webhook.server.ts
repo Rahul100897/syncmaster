@@ -82,6 +82,8 @@ export async function enqueueInventoryWebhook(
       status: "pending",
       triggeredBy: "webhook",
       totalItems: 1,
+      sourceShop: ctx.sourceShop,
+      targetShop: ctx.targetShop,
     },
   });
   await syncQueue.add("inventory", {
@@ -115,6 +117,8 @@ export async function enqueueProductWebhook(
       status: "pending",
       triggeredBy: "webhook",
       totalItems: 1,
+      sourceShop: ctx.sourceShop,
+      targetShop: ctx.targetShop,
     },
   });
   await syncQueue.add("product", {
