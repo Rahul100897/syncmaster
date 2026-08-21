@@ -42,6 +42,7 @@ model StoreConnection {
   plan            String    @default("free") // free | pro
   connectedAt     DateTime?
   filterConfig    Json?
+  payoutPrimaryPct Int            @default(50) // % of synced-order revenue to the primary store
   createdAt       DateTime  @default(now())
 
   syncRules SyncRule[]
