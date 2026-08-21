@@ -178,3 +178,383 @@ export async function dryRun(
     secondaryShop,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Write path (Phase 2) — inventory sync, product upsert, migration runner.
+// Every attempt logs a SyncEvent (CLAUDE.md). Nothing is ever deleted on the
+// destination — only created or updated.
+// ---------------------------------------------------------------------------
+import { adminGraphql, type ProductLite as _ProductLite } from "./graphql.server";
+import { checkAnomaly } from "./anomaly.server";
+
+const SOURCE_SKU_QUERY = `#graphql
+  query SmInventorySku($id: ID!) {
+    inventoryItem(id: $id) { id sku variant { id sku } }
+  }
+`;
+
+const TARGET_VARIANT_BY_SKU = `#graphql
+  query SmVariantBySku($q: String!) {
+    productVariants(first: 1, query: $q) {
+      nodes { id inventoryQuantity inventoryItem { id } }
+    }
+  }
+`;
+
+const FIRST_LOCATION_QUERY = `#graphql
+  query SmFirstLocation { locations(first: 1, query: "status:active") { nodes { id } } }
+`;
+
+const INVENTORY_SET = `#graphql
+  mutation SmInventorySet($input: InventorySetQuantitiesInput!) {
+    inventorySetQuantities(input: $input) {
+      userErrors { field message }
+    }
+  }
+`;
+
+const PRODUCT_SET = `#graphql
+  mutation SmProductSet($input: ProductSetInput!, $synchronous: Boolean!) {
+    productSet(synchronous: $synchronous, input: $input) {
+      product { id handle }
+      userErrors { field message }
+    }
+  }
+`;
+
+interface UserErrorResp {
+  data?: Record<string, { userErrors: Array<{ field: string[] | null; message: string }> }>;
+}
+
+function firstUserError(json: unknown, root: string): string | null {
+  const errs = (json as UserErrorResp).data?.[root]?.userErrors;
+  if (errs && errs.length > 0) return errs.map((e) => e.message).join("; ");
+  return null;
+}
+
+/** SyncRule + direction gate for a field. Defaults to allow primary→secondary. */
+async function isFieldSyncAllowed(
+  connectionId: string,
+  field: string,
+  sourceShop: string,
+  primaryShop: string,
+): Promise<{ allowed: boolean; reason?: string }> {
+  const rule = await prisma.syncRule.findFirst({ where: { connectionId, field } });
+  const enabled = rule?.enabled ?? true;
+  if (!enabled) return { allowed: false, reason: `Sync disabled for "${field}"` };
+
+  const direction = rule?.direction ?? "primary_to_secondary";
+  const sourceIsPrimary = sourceShop === primaryShop;
+  if (direction === "primary_to_secondary" && !sourceIsPrimary)
+    return { allowed: false, reason: "Rule direction is primary→secondary" };
+  if (direction === "secondary_to_primary" && sourceIsPrimary)
+    return { allowed: false, reason: "Rule direction is secondary→primary" };
+  return { allowed: true };
+}
+
+async function logEvent(params: {
+  jobId: string;
+  resourceType: string;
+  resourceId: string;
+  field?: string;
+  oldValue?: string | null;
+  newValue?: string | null;
+  status: "success" | "failed" | "skipped" | "anomaly";
+  error?: string;
+}): Promise<void> {
+  await prisma.syncEvent.create({
+    data: {
+      jobId: params.jobId,
+      resourceType: params.resourceType,
+      resourceId: params.resourceId,
+      field: params.field ?? null,
+      oldValue: params.oldValue ?? null,
+      newValue: params.newValue ?? null,
+      status: params.status,
+      error: params.error ?? null,
+    },
+  });
+}
+
+interface FirstLocationResp {
+  data?: { locations: { nodes: Array<{ id: string }> } };
+}
+async function firstLocationId(shop: string): Promise<string | null> {
+  const json = (await adminGraphql(shop, FIRST_LOCATION_QUERY)) as FirstLocationResp;
+  return json.data?.locations.nodes[0]?.id ?? null;
+}
+
+interface SkuResp {
+  data?: { inventoryItem: { sku: string | null; variant: { sku: string | null } | null } | null };
+}
+interface TargetVariantResp {
+  data?: {
+    productVariants: {
+      nodes: Array<{ id: string; inventoryQuantity: number | null; inventoryItem: { id: string } | null }>;
+    };
+  };
+}
+
+export interface InventorySyncInput {
+  jobId: string;
+  connectionId: string;
+  sourceShop: string;
+  targetShop: string;
+  primaryShop: string;
+  inventoryItemId: string; // gid on the source store
+  available: number;
+}
+
+/**
+ * Apply one inventory-level change from source → target, mapped by SKU.
+ * Runs the anomaly gate; on anomaly it pauses (logs, no write) per CLAUDE.md.
+ */
+export async function applyInventorySync(input: InventorySyncInput): Promise<void> {
+  const gate = await isFieldSyncAllowed(
+    input.connectionId,
+    "inventory",
+    input.sourceShop,
+    input.primaryShop,
+  );
+  if (!gate.allowed) {
+    await logEvent({
+      jobId: input.jobId,
+      resourceType: "inventory",
+      resourceId: input.inventoryItemId,
+      field: "inventory",
+      status: "skipped",
+      error: gate.reason,
+    });
+    return;
+  }
+
+  // 1) Resolve the SKU on the source store.
+  const skuJson = (await adminGraphql(input.sourceShop, SOURCE_SKU_QUERY, {
+    id: input.inventoryItemId,
+  })) as SkuResp;
+  const sku = skuJson.data?.inventoryItem?.variant?.sku ?? skuJson.data?.inventoryItem?.sku ?? null;
+  if (!sku) {
+    await logEvent({
+      jobId: input.jobId,
+      resourceType: "inventory",
+      resourceId: input.inventoryItemId,
+      field: "inventory",
+      status: "skipped",
+      error: "Source inventory item has no SKU to map on",
+    });
+    return;
+  }
+
+  // 2) Find the matching variant on the target store.
+  const tvJson = (await adminGraphql(input.targetShop, TARGET_VARIANT_BY_SKU, {
+    q: `sku:${JSON.stringify(sku)}`,
+  })) as TargetVariantResp;
+  const targetVariant = tvJson.data?.productVariants.nodes[0];
+  if (!targetVariant?.inventoryItem) {
+    await logEvent({
+      jobId: input.jobId,
+      resourceType: "inventory",
+      resourceId: sku,
+      field: "inventory",
+      status: "skipped",
+      error: `No variant with SKU "${sku}" on ${input.targetShop}`,
+    });
+    return;
+  }
+
+  const current = targetVariant.inventoryQuantity ?? 0;
+
+  // 3) Anomaly gate (inventory > 10x) — pause instead of writing.
+  const anomaly = checkAnomaly("inventory", current, input.available);
+  if (anomaly.anomaly) {
+    await logEvent({
+      jobId: input.jobId,
+      resourceType: "inventory",
+      resourceId: sku,
+      field: "inventory",
+      oldValue: String(current),
+      newValue: String(input.available),
+      status: "anomaly",
+      error: anomaly.reason,
+    });
+    return;
+  }
+
+  // 4) Write it.
+  const locationId = await firstLocationId(input.targetShop);
+  if (!locationId) {
+    await logEvent({
+      jobId: input.jobId,
+      resourceType: "inventory",
+      resourceId: sku,
+      field: "inventory",
+      status: "failed",
+      error: `No active location on ${input.targetShop}`,
+    });
+    return;
+  }
+
+  const setJson = await adminGraphql(input.targetShop, INVENTORY_SET, {
+    input: {
+      name: "available",
+      reason: "correction",
+      ignoreCompareQuantity: true,
+      quantities: [
+        {
+          inventoryItemId: targetVariant.inventoryItem.id,
+          locationId,
+          quantity: input.available,
+        },
+      ],
+    },
+  });
+  const err = firstUserError(setJson, "inventorySetQuantities");
+  await logEvent({
+    jobId: input.jobId,
+    resourceType: "inventory",
+    resourceId: sku,
+    field: "inventory",
+    oldValue: String(current),
+    newValue: String(input.available),
+    status: err ? "failed" : "success",
+    error: err ?? undefined,
+  });
+}
+
+/** Build a productSet input from a fetched product (upsert by handle). */
+function productSetInput(product: _ProductLite) {
+  const optionValues = new Map<string, Set<string>>();
+  for (const v of product.variants) {
+    for (const o of v.selectedOptions) {
+      const set = optionValues.get(o.name) ?? new Set<string>();
+      set.add(o.value);
+      optionValues.set(o.name, set);
+    }
+  }
+  const productOptions = product.options.map((name, i) => ({
+    name,
+    position: i + 1,
+    values: Array.from(optionValues.get(name) ?? []).map((value) => ({ name: value })),
+  }));
+
+  const variants = product.variants.map((v) => ({
+    optionValues: v.selectedOptions.map((o) => ({ optionName: o.name, name: o.value })),
+    price: v.price ?? undefined,
+    barcode: v.barcode ?? undefined,
+    inventoryItem: v.sku ? { sku: v.sku } : undefined,
+  }));
+
+  return {
+    handle: product.handle,
+    title: product.title,
+    status: product.status,
+    productOptions,
+    variants,
+  };
+}
+
+/** Create or update a product on the target store (additive upsert). */
+export async function applyProductSync(params: {
+  jobId: string;
+  targetShop: string;
+  product: _ProductLite;
+}): Promise<boolean> {
+  const json = await adminGraphql(params.targetShop, PRODUCT_SET, {
+    synchronous: true,
+    input: productSetInput(params.product),
+  });
+  const err = firstUserError(json, "productSet");
+  await logEvent({
+    jobId: params.jobId,
+    resourceType: "product",
+    resourceId: params.product.handle,
+    status: err ? "failed" : "success",
+    error: err ?? undefined,
+  });
+  return !err;
+}
+
+/**
+ * Execute a migration SyncJob: upsert every will_create / will_update product
+ * onto the secondary store. Conflicts and skips are left untouched. Inventory
+ * levels stay in sync via the real-time webhook path (applyInventorySync).
+ *
+ * NOTE: a pre-sync snapshot (CLAUDE.md) is created here once Snapshot lands in
+ * Phase 3; for now the step is a no-op and logged as such.
+ */
+export async function runMigration(jobId: string): Promise<void> {
+  const job = await prisma.syncJob.findUnique({ where: { id: jobId } });
+  if (!job) throw new Error(`SyncJob ${jobId} not found`);
+
+  try {
+    const { primaryShop, secondaryShop } = await getConnectionShops(job.connectionId);
+    await prisma.syncJob.update({
+      where: { id: jobId },
+      data: { status: "running" },
+    });
+
+    const [dry, primary] = await Promise.all([
+      dryRun(job.connectionId),
+      fetchProducts(primaryShop),
+    ]);
+    const primaryByHandle = new Map(primary.products.map((p) => [p.handle, p]));
+
+    const toSync = dry.items.filter(
+      (i) => i.classification === "will_create" || i.classification === "will_update",
+    );
+
+    let success = 0;
+    let failed = 0;
+    for (const item of toSync) {
+      const product = primaryByHandle.get(item.resourceId);
+      if (!product) {
+        failed++;
+        await logEvent({
+          jobId,
+          resourceType: "product",
+          resourceId: item.resourceId,
+          status: "failed",
+          error: "Product disappeared from source during sync",
+        });
+        continue;
+      }
+      const ok = await applyProductSync({ jobId, targetShop: secondaryShop, product });
+      if (ok) success++;
+      else failed++;
+    }
+
+    await prisma.syncJob.update({
+      where: { id: jobId },
+      data: {
+        status: "completed",
+        totalItems: toSync.length,
+        successItems: success,
+        failedItems: failed,
+        completedAt: new Date(),
+      },
+    });
+    await prisma.activityLog.create({
+      data: {
+        shopId: primaryShop,
+        action: `Migration synced ${success} product(s) to ${secondaryShop}`,
+        resourceType: "product",
+        itemCount: success,
+      },
+    });
+  } catch (error) {
+    // Never swallow — mark failed and record the real reason (CLAUDE.md).
+    const message = error instanceof Error ? error.message : String(error);
+    await prisma.syncJob.update({
+      where: { id: jobId },
+      data: { status: "failed", completedAt: new Date() },
+    });
+    await logEvent({
+      jobId,
+      resourceType: "job",
+      resourceId: jobId,
+      status: "failed",
+      error: message,
+    });
+    throw error;
+  }
+}

@@ -12,6 +12,23 @@ dev_store_url = "rahul-developer-store.myshopify.com"
 [webhooks]
 api_version = "2025-07"
 
+  # ---- SyncMaster real-time sync webhooks (Phase 2) ----
+  [[webhooks.subscriptions]]
+  topics = [ "products/create" ]
+  uri = "/webhooks/products/create"
+
+  [[webhooks.subscriptions]]
+  topics = [ "products/update" ]
+  uri = "/webhooks/products/update"
+
+  [[webhooks.subscriptions]]
+  topics = [ "products/delete" ]
+  uri = "/webhooks/products/delete"
+
+  [[webhooks.subscriptions]]
+  topics = [ "inventory_levels/update" ]
+  uri = "/webhooks/inventory_levels/update"
+
   [[webhooks.subscriptions]]
   uri = "/webhooks/customers/data_request"
   compliance_topics = [ "customers/data_request" ]

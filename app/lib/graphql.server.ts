@@ -4,6 +4,7 @@ import { unauthenticated } from "../shopify.server";
 export interface VariantLite {
   id: string;
   title: string;
+  selectedOptions: Array<{ name: string; value: string }>;
   sku: string | null;
   barcode: string | null;
   price: string | null;
@@ -34,6 +35,7 @@ interface ProductsQueryResponse {
           nodes: Array<{
             id: string;
             title: string;
+            selectedOptions: Array<{ name: string; value: string }>;
             sku: string | null;
             barcode: string | null;
             price: string | null;
@@ -61,6 +63,7 @@ const PRODUCTS_QUERY = `#graphql
           nodes {
             id
             title
+            selectedOptions { name value }
             sku
             barcode
             price
@@ -148,6 +151,7 @@ export async function fetchProducts(
         variants: node.variants.nodes.map((v) => ({
           id: v.id,
           title: v.title,
+          selectedOptions: v.selectedOptions,
           sku: v.sku,
           barcode: v.barcode,
           price: v.price,
@@ -166,4 +170,85 @@ export async function fetchProducts(
   }
 
   return { products, truncated };
+}
+
+const PRODUCT_BY_HANDLE = `#graphql
+  query SyncMasterProductByHandle($q: String!) {
+    products(first: 1, query: $q) {
+      nodes {
+        id
+        handle
+        title
+        status
+        options { name }
+        variants(first: 100) {
+          nodes {
+            id
+            title
+            selectedOptions { name value }
+            sku
+            barcode
+            price
+            inventoryQuantity
+            inventoryItem { id }
+          }
+        }
+      }
+    }
+  }
+`;
+
+interface SingleProductResponse {
+  data?: {
+    products: {
+      nodes: Array<{
+        id: string;
+        handle: string;
+        title: string;
+        status: string;
+        options: Array<{ name: string }>;
+        variants: {
+          nodes: Array<{
+            id: string;
+            title: string;
+            selectedOptions: Array<{ name: string; value: string }>;
+            sku: string | null;
+            barcode: string | null;
+            price: string | null;
+            inventoryQuantity: number | null;
+            inventoryItem: { id: string } | null;
+          }>;
+        };
+      }>;
+    };
+  };
+}
+
+/** Fetch a single product (with variants) by exact handle, or null. */
+export async function fetchProductByHandle(
+  shop: string,
+  handle: string,
+): Promise<ProductLite | null> {
+  const json = (await adminGraphql(shop, PRODUCT_BY_HANDLE, {
+    q: `handle:${JSON.stringify(handle)}`,
+  })) as SingleProductResponse;
+  const node = json.data?.products.nodes[0];
+  if (!node || node.handle !== handle) return null;
+  return {
+    id: node.id,
+    handle: node.handle,
+    title: node.title,
+    status: node.status,
+    options: node.options.map((o) => o.name),
+    variants: node.variants.nodes.map((v) => ({
+      id: v.id,
+      title: v.title,
+      selectedOptions: v.selectedOptions,
+      sku: v.sku,
+      barcode: v.barcode,
+      price: v.price,
+      inventoryItemId: v.inventoryItem?.id ?? null,
+      inventoryQuantity: v.inventoryQuantity,
+    })),
+  };
 }
