@@ -636,3 +636,167 @@ export async function forceInventoryBySku(params: {
     error: err ?? undefined,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Metafield + metaobject sync (Phase 3).
+// Metafields: fetch ALL (no 50-item cap that competitors impose) and write in
+// batches of 25 via metafieldsSet. Metaobjects: unique — upsert by handle.
+// ---------------------------------------------------------------------------
+import { fetchProductByHandle } from "./graphql.server";
+
+const SOURCE_PRODUCT_METAFIELDS = `#graphql
+  query SmProductMetafields($id: ID!, $cursor: String) {
+    product(id: $id) {
+      handle
+      metafields(first: 100, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes { namespace key type value }
+      }
+    }
+  }
+`;
+
+const METAFIELDS_SET = `#graphql
+  mutation SmMetafieldsSet($metafields: [MetafieldsSetInput!]!) {
+    metafieldsSet(metafields: $metafields) {
+      userErrors { field message }
+    }
+  }
+`;
+
+interface ProductMetafieldsResp {
+  data?: {
+    product: {
+      handle: string;
+      metafields: {
+        pageInfo: { hasNextPage: boolean; endCursor: string | null };
+        nodes: Array<{ namespace: string; key: string; type: string; value: string }>;
+      };
+    } | null;
+  };
+}
+
+async function connectionByShops(a: string, b: string) {
+  return prisma.storeConnection.findFirst({
+    where: {
+      status: "connected",
+      OR: [
+        { primaryShopId: a, secondaryShopId: b },
+        { primaryShopId: b, secondaryShopId: a },
+      ],
+    },
+  });
+}
+
+async function fieldEnabled(connectionId: string, field: string): Promise<boolean> {
+  const rule = await prisma.syncRule.findFirst({ where: { connectionId, field } });
+  return rule?.enabled ?? true;
+}
+
+/**
+ * Sync ALL metafields of a source product onto the matching destination
+ * product (by handle). No 50-item limit — batched in groups of 25.
+ */
+export async function syncMetafields(
+  sourceShop: string,
+  destShop: string,
+  productId: string,
+): Promise<void> {
+  const connection = await connectionByShops(sourceShop, destShop);
+  if (connection && !(await fieldEnabled(connection.id, "metafields"))) return;
+
+  // 1) Fetch every metafield on the source product.
+  const metafields: Array<{ namespace: string; key: string; type: string; value: string }> = [];
+  let cursor: string | null = null;
+  let handle = "";
+  for (;;) {
+    const json = (await adminGraphql(sourceShop, SOURCE_PRODUCT_METAFIELDS, {
+      id: productId,
+      cursor,
+    })) as ProductMetafieldsResp;
+    const product = json.data?.product;
+    if (!product) return;
+    handle = product.handle;
+    metafields.push(...product.metafields.nodes);
+    if (!product.metafields.pageInfo.hasNextPage) break;
+    cursor = product.metafields.pageInfo.endCursor;
+  }
+  if (metafields.length === 0) return;
+
+  // 2) Resolve the destination product owner id (by handle).
+  const dest = await fetchProductByHandle(destShop, handle);
+  if (!dest) return;
+
+  // 3) Write in batches of 25 (Shopify hard limit).
+  for (let i = 0; i < metafields.length; i += 25) {
+    const chunk = metafields.slice(i, i + 25).map((m) => ({
+      ownerId: dest.id,
+      namespace: m.namespace,
+      key: m.key,
+      type: m.type,
+      value: m.value,
+    }));
+    await adminGraphql(destShop, METAFIELDS_SET, { metafields: chunk });
+  }
+}
+
+const SOURCE_METAOBJECTS = `#graphql
+  query SmMetaobjects($type: String!, $cursor: String) {
+    metaobjects(type: $type, first: 50, after: $cursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes { handle type fields { key value } }
+    }
+  }
+`;
+
+const METAOBJECT_UPSERT = `#graphql
+  mutation SmMetaobjectUpsert($handle: MetaobjectHandleInput!, $metaobject: MetaobjectUpsertInput!) {
+    metaobjectUpsert(handle: $handle, metaobject: $metaobject) {
+      userErrors { field message }
+    }
+  }
+`;
+
+interface MetaobjectsResp {
+  data?: {
+    metaobjects: {
+      pageInfo: { hasNextPage: boolean; endCursor: string | null };
+      nodes: Array<{ handle: string; type: string; fields: Array<{ key: string; value: string }> }>;
+    };
+  };
+}
+
+/**
+ * Sync all metaobject entries of a given type from source → destination
+ * (upsert by handle). Unique feature — no competitor offers metaobject sync.
+ */
+export async function syncMetaobjects(
+  sourceShop: string,
+  destShop: string,
+  type: string,
+): Promise<void> {
+  const connection = await connectionByShops(sourceShop, destShop);
+  if (connection && !(await fieldEnabled(connection.id, "metaobjects"))) return;
+
+  let cursor: string | null = null;
+  for (;;) {
+    const json = (await adminGraphql(sourceShop, SOURCE_METAOBJECTS, {
+      type,
+      cursor,
+    })) as MetaobjectsResp;
+    const page = json.data?.metaobjects;
+    if (!page) return;
+
+    for (const entry of page.nodes) {
+      await adminGraphql(destShop, METAOBJECT_UPSERT, {
+        handle: { type: entry.type, handle: entry.handle },
+        metaobject: {
+          fields: entry.fields.map((f) => ({ key: f.key, value: f.value })),
+        },
+      });
+    }
+
+    if (!page.pageInfo.hasNextPage) break;
+    cursor = page.pageInfo.endCursor;
+  }
+}
