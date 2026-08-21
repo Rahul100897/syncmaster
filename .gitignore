@@ -80,3 +80,16 @@ Thumbs.db
 # Misc
 *.tgz
 .node_repl_history
+
+# Shopify CLI
+.shopify/*
+.shopify.lock
+
+# Prisma local dev db (Postgres in prod; ignore stray sqlite)
+/prisma/dev.sqlite
+/prisma/dev.sqlite-journal
+
+# Remix / Shopify build artifacts
+/public/build/
+/app/build
+/extensions/*/dist
