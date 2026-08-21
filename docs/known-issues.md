@@ -30,3 +30,17 @@ Format: [Date] [Phase] [Description] [Status: open/fixed]
   the owning resource scope (read_products covers product metafields, etc.), so
   metafield sync is unaffected. Removed them from shopify.app.toml, .env,
   .env.example, and corrected CLAUDE.md. Status: fixed.
+
+- [2026-08-21] [Phase 2] The BullMQ worker (`npm run worker`) makes authenticated
+  cross-store Admin API calls, so it needs the same env as the web app
+  (SHOPIFY_API_KEY/SECRET/APP_URL, DATABASE_URL, REDIS_URL). Locally the app's
+  `.env` has empty Shopify keys (dev injects them into the web process only), so
+  the worker must be run with real credentials to process jobs. Jobs still
+  enqueue durably in Postgres/Redis regardless. On Railway (Phase 4) the platform
+  env satisfies this. Status: open (env, expected).
+- [2026-08-21] [Phase 2] Migration "Proceed with sync" enqueues a job that upserts
+  products via productSet; the pre-sync snapshot step (CLAUDE.md "always snapshot
+  before bulk sync") is a documented no-op until Snapshot lands in Phase 3. Status: open (by phase).
+- [2026-08-21] [Phase 2] Route-adjacent CSS modules must NOT live in app/routes/
+  (flat-routes parses them as route modules and the build fails). jobs pulse CSS
+  lives in app/styles/. Status: fixed.
