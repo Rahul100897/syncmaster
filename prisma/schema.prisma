@@ -1,18 +1,17 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// SyncMaster — Prisma schema
+// Datasource: PostgreSQL (see CLAUDE.md — TECH STACK)
+// Learn more: https://pris.ly/d/prisma-schema
 
 generator client {
   provider = "prisma-client-js"
 }
 
-// Note that some adapters may set a maximum length for the String type by default, please ensure your strings are long
-// enough when changing adapters.
-// See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
 datasource db {
-  provider = "sqlite"
-  url      = "file:dev.sqlite"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
+// Shopify OAuth session storage (managed by @shopify/shopify-app-session-storage-prisma)
 model Session {
   id                  String    @id
   shop                String
@@ -31,4 +30,102 @@ model Session {
   emailVerified       Boolean?  @default(false)
   refreshToken        String?
   refreshTokenExpires DateTime?
+}
+
+// A link between a primary (billing) store and a secondary store.
+model StoreConnection {
+  id              String    @id @default(cuid())
+  primaryShopId   String
+  secondaryShopId String?
+  linkCode        String    @unique
+  status          String    @default("pending") // pending | connected | disconnected
+  plan            String    @default("free") // free | pro
+  connectedAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  syncRules SyncRule[]
+  syncJobs  SyncJob[]
+  snapshots Snapshot[]
+
+  @@index([primaryShopId])
+  @@index([secondaryShopId])
+}
+
+// Per-field sync configuration for a connection.
+model SyncRule {
+  id            String          @id @default(cuid())
+  connectionId  String
+  connection    StoreConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  field         String
+  direction     String          @default("primary_to_secondary") // primary_to_secondary | secondary_to_primary | two_way
+  enabled       Boolean         @default(true)
+  priceMarkup   Float?
+  bufferPercent Int?
+  createdAt     DateTime        @default(now())
+
+  @@index([connectionId])
+}
+
+// A single sync run (migration, bulk, or webhook-triggered).
+model SyncJob {
+  id           String          @id @default(cuid())
+  connectionId String
+  connection   StoreConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  type         String // migration | product | inventory | metafield | metaobject | order | ...
+  status       String          @default("pending") // pending | running | completed | failed | anomaly
+  totalItems   Int             @default(0)
+  successItems Int             @default(0)
+  failedItems  Int             @default(0)
+  triggeredBy  String // manual | webhook | schedule
+  startedAt    DateTime        @default(now())
+  completedAt  DateTime?
+
+  events SyncEvent[]
+
+  @@index([connectionId])
+  @@index([status])
+}
+
+// One record per resource/field change attempt within a job.
+model SyncEvent {
+  id           String   @id @default(cuid())
+  jobId        String
+  job          SyncJob  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  resourceType String // product | variant | inventory | metafield | metaobject | order | ...
+  resourceId   String
+  field        String?
+  oldValue     String?
+  newValue     String?
+  status       String // success | failed | skipped | anomaly
+  error        String?
+  createdAt    DateTime @default(now())
+
+  @@index([jobId])
+  @@index([status])
+}
+
+// Point-in-time backup of store data, stored in R2, used for rollback.
+model Snapshot {
+  id           String          @id @default(cuid())
+  connectionId String
+  connection   StoreConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  fileUrl      String
+  itemCount    Int
+  createdAt    DateTime        @default(now())
+  expiresAt    DateTime
+
+  @@index([connectionId])
+}
+
+// Human-readable activity feed shown on the dashboard.
+model ActivityLog {
+  id           String   @id @default(cuid())
+  shopId       String
+  action       String
+  resourceType String
+  itemCount    Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  @@index([shopId])
+  @@index([createdAt])
 }
