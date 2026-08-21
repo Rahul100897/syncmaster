@@ -6,27 +6,47 @@ import { NavMenu } from "@shopify/app-bridge-react";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
 
 import { authenticate } from "../shopify.server";
+import { isPro } from "../lib/billing.server";
+import type { Plan } from "../components/AppLayout";
 
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
 
-export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
+export interface AppOutletContext {
+  shop: string;
+  plan: Plan;
+}
 
-  return { apiKey: process.env.SHOPIFY_API_KEY || "" };
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+  const { session } = await authenticate.admin(request);
+  const plan: Plan = (await isPro(session.shop)) ? "pro" : "free";
+
+  return {
+    apiKey: process.env.SHOPIFY_API_KEY || "",
+    shop: session.shop,
+    plan,
+  };
 };
 
 export default function App() {
-  const { apiKey } = useLoaderData<typeof loader>();
+  const { apiKey, shop, plan } = useLoaderData<typeof loader>();
+  const context: AppOutletContext = { shop, plan };
 
   return (
     <AppProvider isEmbeddedApp apiKey={apiKey}>
+      {/* Shopify Admin native nav (App Bridge) — mirrors the in-app sidebar. */}
       <NavMenu>
         <Link to="/app" rel="home">
-          Home
+          Dashboard
         </Link>
-        <Link to="/app/additional">Additional page</Link>
+        <Link to="/app/connect">Connect Stores</Link>
+        <Link to="/app/rules">Sync Rules</Link>
+        <Link to="/app/jobs">Jobs</Link>
+        <Link to="/app/snapshots">Snapshots</Link>
+        <Link to="/app/analytics">Analytics</Link>
+        <Link to="/app/activity">Activity Log</Link>
+        <Link to="/app/settings">Settings</Link>
       </NavMenu>
-      <Outlet />
+      <Outlet context={context} />
     </AppProvider>
   );
 }
