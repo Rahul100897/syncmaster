@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "Snapshot" ADD COLUMN     "sizeBytes" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "status" TEXT NOT NULL DEFAULT 'pending',
+ALTER COLUMN "fileUrl" DROP NOT NULL;

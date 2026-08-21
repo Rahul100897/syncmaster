@@ -111,8 +111,10 @@ model Snapshot {
   id           String          @id @default(cuid())
   connectionId String
   connection   StoreConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
-  fileUrl      String
+  fileUrl      String?
   itemCount    Int
+  status       String          @default("pending") // pending | ready | failed
+  sizeBytes    Int             @default(0)
   createdAt    DateTime        @default(now())
   expiresAt    DateTime
 

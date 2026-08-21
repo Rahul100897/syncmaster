@@ -494,6 +494,24 @@ export async function runMigration(jobId: string): Promise<void> {
       data: { status: "running" },
     });
 
+    // ALWAYS snapshot before a bulk sync (CLAUDE.md). Dynamic import avoids a
+    // circular dependency with snapshot.server.ts. If R2 isn't configured the
+    // snapshot fails — log and continue so dev without R2 isn't hard-blocked.
+    try {
+      const { createSnapshot } = await import("./snapshot.server");
+      await createSnapshot(job.connectionId);
+    } catch (snapErr) {
+      const m = snapErr instanceof Error ? snapErr.message : String(snapErr);
+      console.warn(`[migration ${jobId}] pre-sync snapshot skipped: ${m}`);
+      await logEvent({
+        jobId,
+        resourceType: "snapshot",
+        resourceId: job.connectionId,
+        status: "skipped",
+        error: `Pre-sync snapshot failed: ${m}`,
+      });
+    }
+
     const [dry, primary] = await Promise.all([
       dryRun(job.connectionId),
       fetchProducts(primaryShop),
