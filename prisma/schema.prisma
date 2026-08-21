@@ -41,6 +41,7 @@ model StoreConnection {
   status          String    @default("pending") // pending | connected | disconnected
   plan            String    @default("free") // free | pro
   connectedAt     DateTime?
+  filterConfig    Json?
   createdAt       DateTime  @default(now())
 
   syncRules SyncRule[]
@@ -60,9 +61,12 @@ model SyncRule {
   direction     String          @default("primary_to_secondary") // primary_to_secondary | secondary_to_primary | two_way
   enabled       Boolean         @default(true)
   priceMarkup   Float?
+  priceFixed    Float?
+  rounding      String?
   bufferPercent Int?
   createdAt     DateTime        @default(now())
 
+  @@unique([connectionId, field])
   @@index([connectionId])
 }
 
