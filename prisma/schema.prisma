@@ -41,6 +41,8 @@ model StoreConnection {
   status          String    @default("pending") // pending | connected | disconnected
   plan            String    @default("free") // free | pro
   connectedAt     DateTime?
+  filterConfig    Json?
+  payoutPrimaryPct Int            @default(50) // % of synced-order revenue to the primary store
   createdAt       DateTime  @default(now())
 
   syncRules SyncRule[]
@@ -60,9 +62,12 @@ model SyncRule {
   direction     String          @default("primary_to_secondary") // primary_to_secondary | secondary_to_primary | two_way
   enabled       Boolean         @default(true)
   priceMarkup   Float?
+  priceFixed    Float?
+  rounding      String?
   bufferPercent Int?
   createdAt     DateTime        @default(now())
 
+  @@unique([connectionId, field])
   @@index([connectionId])
 }
 
@@ -111,8 +116,10 @@ model Snapshot {
   id           String          @id @default(cuid())
   connectionId String
   connection   StoreConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
-  fileUrl      String
+  fileUrl      String?
   itemCount    Int
+  status       String          @default("pending") // pending | ready | failed
+  sizeBytes    Int             @default(0)
   createdAt    DateTime        @default(now())
   expiresAt    DateTime
 

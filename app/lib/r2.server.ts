@@ -46,3 +46,22 @@ export async function getSignedUrl(
     expiresIn: expiresInSeconds,
   });
 }
+
+/** Download an R2 object's contents as a UTF-8 string. */
+export async function download(key: string): Promise<string> {
+  const res = await r2.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  if (!res.Body) throw new Error(`R2 object ${key} has no body`);
+  // AWS SDK v3 Body is a stream with transformToString() in Node.
+  const body = res.Body as { transformToString: () => Promise<string> };
+  return body.transformToString();
+}
+
+/** Whether R2 credentials are configured (else uploads/downloads will fail). */
+export function isR2Configured(): boolean {
+  return Boolean(
+    process.env.R2_ACCOUNT_ID &&
+      process.env.R2_ACCESS_KEY_ID &&
+      process.env.R2_SECRET_ACCESS_KEY &&
+      process.env.R2_BUCKET_NAME,
+  );
+}
