@@ -9,6 +9,7 @@ import {
   useOutletContext,
   useRevalidator,
   Form,
+  useActionData,
   useNavigation,
 } from "@remix-run/react";
 import {
@@ -32,6 +33,8 @@ import prisma from "../db.server";
 import { dryRun, type DryRunResult, type Classification } from "../lib/sync.server";
 import { scanConflicts, type ConflictReport } from "../lib/conflict.server";
 import { syncQueue } from "../lib/queue.server";
+import { isPro } from "../lib/billing.server";
+import { productCount } from "../lib/graphql.server";
 import AppLayout from "../components/AppLayout";
 import type { AppOutletContext } from "./app";
 
@@ -77,6 +80,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const connection = await findConnectionFor(session.shop);
   if (!connection || !connection.secondaryShopId) {
     throw new Error("No fully connected store pair to sync.");
+  }
+
+  // Free plan: migration is allowed, but capped at 25 products (CLAUDE.md).
+  if (!(await isPro(session.shop))) {
+    const count = await productCount(connection.primaryShopId);
+    if (count > 25) {
+      return {
+        error: `Free plan is limited to 25 products (found ${count}). Upgrade to Pro for unlimited sync.`,
+      };
+    }
   }
 
   // Create the job row, then enqueue it for the worker. The worker takes a
@@ -157,6 +170,8 @@ function PreviewBody() {
   const { dry, conflicts } = useAsyncValue() as PreviewData;
   const navigation = useNavigation();
   const navigate = useNavigate();
+  const actionData = useActionData<typeof action>();
+  const actionError = actionData && "error" in actionData ? actionData.error : null;
   const submitting = navigation.state !== "idle";
 
   const rowsFor = (cls: Classification) =>
@@ -236,21 +251,28 @@ function PreviewBody() {
 
       {/* Actions */}
       <Card>
-        <InlineStack align="space-between" blockAlign="center">
-          <Text as="p" tone="subdued">
-            {conflicts.conflicts.length > 0
-              ? "Resolve conflicts first — syncing may overwrite mismatched data."
-              : "A snapshot is taken automatically before any changes are written."}
-          </Text>
-          <InlineStack gap="200">
-            <Button onClick={() => navigate("/app")}>Cancel</Button>
-            <Form method="post">
-              <Button variant="primary" submit loading={submitting}>
-                Proceed with sync
-              </Button>
-            </Form>
+        <BlockStack gap="300">
+          {actionError ? (
+            <Banner tone="warning" title="Can't start sync">
+              <Text as="p">{actionError}</Text>
+            </Banner>
+          ) : null}
+          <InlineStack align="space-between" blockAlign="center">
+            <Text as="p" tone="subdued">
+              {conflicts.conflicts.length > 0
+                ? "Resolve conflicts first — syncing may overwrite mismatched data."
+                : "A snapshot is taken automatically before any changes are written."}
+            </Text>
+            <InlineStack gap="200">
+              <Button onClick={() => navigate("/app")}>Cancel</Button>
+              <Form method="post">
+                <Button variant="primary" submit loading={submitting}>
+                  Proceed with sync
+                </Button>
+              </Form>
+            </InlineStack>
           </InlineStack>
-        </InlineStack>
+        </BlockStack>
       </Card>
     </BlockStack>
   );

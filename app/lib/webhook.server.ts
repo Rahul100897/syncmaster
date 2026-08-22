@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import prisma from "../db.server";
 import { syncQueue } from "./queue.server";
+import { isPro } from "./billing.server";
 
 /**
  * Verify the HMAC-SHA256 signature on an incoming Shopify webhook request.
@@ -74,6 +75,11 @@ export async function enqueueInventoryWebhook(
   const ctx = await connectionForShop(shop);
   if (!ctx) return;
   if (payload.inventory_item_id == null || payload.available == null) return;
+  // Real-time sync is a Pro feature (Free = migration mode only).
+  if (!(await isPro(ctx.primaryShop))) {
+    console.log(`[webhook] real-time inventory sync skipped for ${shop} (Free plan)`);
+    return;
+  }
 
   const job = await prisma.syncJob.create({
     data: {
@@ -109,6 +115,10 @@ export async function enqueueProductWebhook(
 ): Promise<void> {
   const ctx = await connectionForShop(shop);
   if (!ctx || !payload.handle) return;
+  if (!(await isPro(ctx.primaryShop))) {
+    console.log(`[webhook] real-time product sync skipped for ${shop} (Free plan)`);
+    return;
+  }
 
   const job = await prisma.syncJob.create({
     data: {

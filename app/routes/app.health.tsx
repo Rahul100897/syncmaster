@@ -16,12 +16,17 @@ import { formatDistanceToNow } from "date-fns";
 
 import { authenticate } from "../shopify.server";
 import { getHealth, type CredentialStatus } from "../lib/health.server";
+import { isPro } from "../lib/billing.server";
 import AppLayout from "../components/AppLayout";
+import ProLock from "../components/ProLock";
 import type { AppOutletContext } from "./app";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-  return getHealth(session.shop);
+  if (!(await isPro(session.shop)))
+    return { locked: true as const, connections: [], weekly: null };
+  const report = await getHealth(session.shop);
+  return { locked: false as const, ...report };
 };
 
 function CredBadge({ status }: { status: CredentialStatus }) {
@@ -44,10 +49,23 @@ function rateTone(rate: number): "success" | "warning" | "critical" {
 }
 
 export default function Health() {
-  const { connections, weekly } = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>();
   const { shop, plan } = useOutletContext<AppOutletContext>();
   const navigate = useNavigate();
   const revalidator = useRevalidator();
+
+  if (data.locked || !data.weekly) {
+    return (
+      <AppLayout shop={shop} plan={plan}>
+        <BlockStack gap="500">
+          <Text as="h1" variant="headingXl" fontWeight="bold">Sync Health</Text>
+          <ProLock feature="Sync health monitor" />
+        </BlockStack>
+      </AppLayout>
+    );
+  }
+
+  const { connections, weekly } = data;
 
   return (
     <AppLayout shop={shop} plan={plan}>
