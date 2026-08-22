@@ -43,6 +43,7 @@ model StoreConnection {
   connectedAt     DateTime?
   filterConfig    Json?
   payoutPrimaryPct Int            @default(50) // % of synced-order revenue to the primary store
+  settingsConfig   Json?
   createdAt       DateTime  @default(now())
 
   syncRules SyncRule[]
