@@ -58,3 +58,18 @@ Format: [Date] [Phase] [Description] [Status: open/fixed]
 - [2026-08-21] [Phase 3] Analytics + payouts fetch orders live via GraphQL
   (read_orders) capped at 500 orders/store per range (reported as truncated when
   hit); bulkOperationRunQuery is the future path for very high-volume stores. Status: open (by design).
+
+- [2026-08-22] [Phase 4] Billing: `isPro` reads the active Shopify subscription
+  (with secondary-store coverage). To test the real upgrade flow end-to-end,
+  approve the Pro charge on a dev store (test charges, not billed). For local
+  UI testing without a charge, `.env` sets SHOP_PLAN_OVERRIDE=pro. Status: open (needs Partner approval to test live).
+- [2026-08-22] [Phase 4] The `worker` npm script keeps `--env-file-if-exists=.env`
+  (a superset of the phase-4 spec's bare `tsx app/jobs/worker.ts`): it loads
+  local env when a .env is present and is a no-op on Railway where the platform
+  injects env. Deliberate improvement, not a regression. Status: fixed.
+- [2026-08-22] [Phase 4] Railway startCommand is `npm run start` per spec —
+  migrations are NOT run at start. Run `npm run setup` (prisma generate + migrate
+  deploy) as a Railway deploy/release step, or before first boot. Status: open (deploy step).
+- [2026-08-22] [Phase 4] Email notifications: preferences are saved and health
+  alerts are computed, but actual email delivery is not wired (no email provider
+  configured). Alerts currently log + write ActivityLog entries. Status: open (needs an email provider).

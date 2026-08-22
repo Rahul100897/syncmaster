@@ -24,7 +24,9 @@ import { formatDistanceToNow } from "date-fns";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { createSnapshot, restorePreview, restoreSnapshot, type RestoreDiff } from "../lib/snapshot.server";
+import { isPro } from "../lib/billing.server";
 import AppLayout from "../components/AppLayout";
+import ProLock from "../components/ProLock";
 import type { AppOutletContext } from "./app";
 
 async function connectionFor(shop: string) {
@@ -36,6 +38,8 @@ async function connectionFor(shop: string) {
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
+  const pro = await isPro(session.shop);
+  if (!pro) return { locked: true as const, connected: false, snapshots: [] };
   const connection = await connectionFor(session.shop);
   const snapshots = connection
     ? await prisma.snapshot.findMany({
@@ -46,6 +50,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     : [];
   const now = Date.now();
   return {
+    locked: false as const,
     connected: Boolean(connection),
     snapshots: snapshots.map((s) => ({
       id: s.id,
@@ -63,6 +68,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const connection = await connectionFor(session.shop);
   if (!connection) return { ok: false as const, error: "No connected store pair." };
+  if (!(await isPro(session.shop)))
+    return { ok: false as const, error: "Snapshots are a Pro feature — upgrade to continue." };
 
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
@@ -107,10 +114,9 @@ function StatusBadge({ status }: { status: string }) {
   }
 }
 
-type SnapshotDTO = ReturnType<typeof useLoaderData<typeof loader>>["snapshots"][number];
 
 export default function Snapshots() {
-  const { connected, snapshots } = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>();
   const { shop, plan } = useOutletContext<AppOutletContext>();
   const navigate = useNavigate();
   const shopify = useAppBridge();
@@ -161,6 +167,19 @@ export default function Snapshots() {
 
   const diff: RestoreDiff | null =
     previewFetcher.data?.ok && "diff" in previewFetcher.data ? previewFetcher.data.diff : null;
+
+  if (data.locked) {
+    return (
+      <AppLayout shop={shop} plan={plan}>
+        <BlockStack gap="500">
+          <Text as="h1" variant="headingXl" fontWeight="bold">Snapshots</Text>
+          <ProLock feature="Snapshots & rollback" />
+        </BlockStack>
+      </AppLayout>
+    );
+  }
+
+  const { connected, snapshots } = data;
 
   return (
     <AppLayout shop={shop} plan={plan}>
@@ -221,7 +240,7 @@ export default function Snapshots() {
                 </InlineStack>
               </Box>
               <Divider />
-              {snapshots.map((s: SnapshotDTO, i) => (
+              {snapshots.map((s, i) => (
                 <div key={s.id} style={{ background: i % 2 === 0 ? "#FFFFFF" : "#F8F9FF" }}>
                   <Box padding="300" paddingInlineStart="400" paddingInlineEnd="400">
                     <InlineStack gap="400" blockAlign="center" wrap={false}>

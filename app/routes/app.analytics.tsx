@@ -26,7 +26,9 @@ import {
 
 import { authenticate } from "../shopify.server";
 import { getAnalytics, type Analytics } from "../lib/analytics.server";
+import { isPro } from "../lib/billing.server";
 import AppLayout from "../components/AppLayout";
+import ProLock from "../components/ProLock";
 import type { AppOutletContext } from "./app";
 
 const RANGES = [
@@ -39,7 +41,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const url = new URL(request.url);
   const days = Number(url.searchParams.get("days")) || 30;
-  return defer({ days, analytics: getAnalytics(session.shop, days) });
+  if (!(await isPro(session.shop))) return defer({ locked: true as const, days });
+  return defer({ locked: false as const, days, analytics: getAnalytics(session.shop, days) });
 };
 
 function money(n: number): string {
@@ -170,10 +173,23 @@ function AnalyticsSkeleton() {
 }
 
 export default function AnalyticsPage() {
-  const { days, analytics } = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>();
   const { shop, plan } = useOutletContext<AppOutletContext>();
   const navigate = useNavigate();
   const [, setSearchParams] = useSearchParams();
+
+  if (data.locked) {
+    return (
+      <AppLayout shop={shop} plan={plan}>
+        <BlockStack gap="500">
+          <Text as="h1" variant="headingXl" fontWeight="bold">Analytics</Text>
+          <ProLock feature="Cross-store analytics" />
+        </BlockStack>
+      </AppLayout>
+    );
+  }
+
+  const { days, analytics } = data;
 
   return (
     <AppLayout shop={shop} plan={plan}>

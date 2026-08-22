@@ -339,3 +339,17 @@ export async function fetchOrders(
   }
   return { orders, truncated: false };
 }
+
+const PRODUCTS_COUNT = `#graphql
+  query SyncMasterProductsCount { productsCount { count } }
+`;
+
+interface ProductsCountResp {
+  data?: { productsCount: { count: number } };
+}
+
+/** Total product count on a shop (for plan-limit checks). */
+export async function productCount(shop: string): Promise<number> {
+  const json = (await adminGraphql(shop, PRODUCTS_COUNT)) as ProductsCountResp;
+  return json.data?.productsCount.count ?? 0;
+}
