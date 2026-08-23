@@ -118,6 +118,7 @@ model Snapshot {
   connectionId String
   connection   StoreConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   fileUrl      String?
+  data         String?  // inline snapshot JSON when R2 is not configured
   itemCount    Int
   status       String          @default("pending") // pending | ready | failed
   sizeBytes    Int             @default(0)

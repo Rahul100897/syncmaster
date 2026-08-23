@@ -38,11 +38,6 @@ export async function createSnapshot(connectionId: string): Promise<Snapshot> {
   });
 
   try {
-    if (!isR2Configured()) {
-      throw new Error(
-        "Cloudflare R2 is not configured (set R2_* env vars) — cannot store snapshot.",
-      );
-    }
     const [primary, secondary] = await Promise.all([
       fetchProducts(primaryShop),
       fetchProducts(secondaryShop),
@@ -56,15 +51,23 @@ export async function createSnapshot(connectionId: string): Promise<Snapshot> {
       products: { primary: primary.products, secondary: secondary.products },
     };
     const json = JSON.stringify(data);
-    const key = snapshotKey(connectionId, snapshot.id);
-    await upload(key, json, "application/json");
+    const itemCount = primary.products.length + secondary.products.length;
+    const sizeBytes = Buffer.byteLength(json);
+
+    // Store in Cloudflare R2 when configured (best for large catalogs), else
+    // fall back to storing the JSON inline in the database so snapshots still
+    // work in dev / on deploys without R2.
+    const storage = isR2Configured()
+      ? { fileUrl: await upload(snapshotKey(connectionId, snapshot.id), json, "application/json"), data: null }
+      : { fileUrl: null, data: json };
 
     const updated = await prisma.snapshot.update({
       where: { id: snapshot.id },
       data: {
-        fileUrl: key,
-        itemCount: primary.products.length + secondary.products.length,
-        sizeBytes: Buffer.byteLength(json),
+        fileUrl: storage.fileUrl,
+        data: storage.data,
+        itemCount,
+        sizeBytes,
         status: "ready",
       },
     });
@@ -97,9 +100,18 @@ export async function snapshotDownloadUrl(snapshotId: string): Promise<string> {
 
 async function loadSnapshotData(snapshotId: string): Promise<SnapshotData> {
   const snapshot = await prisma.snapshot.findUnique({ where: { id: snapshotId } });
-  if (!snapshot?.fileUrl) throw new Error("Snapshot is not ready or has no file.");
-  const raw = await download(snapshot.fileUrl);
+  if (!snapshot) throw new Error("Snapshot not found.");
+  // Inline (DB) storage takes precedence; otherwise pull from R2.
+  const raw = snapshot.data ?? (snapshot.fileUrl ? await download(snapshot.fileUrl) : null);
+  if (!raw) throw new Error("Snapshot is not ready or has no stored data.");
   return JSON.parse(raw) as SnapshotData;
+}
+
+/** Raw snapshot JSON for download (inline or from R2). */
+export async function snapshotJson(snapshotId: string): Promise<string | null> {
+  const snapshot = await prisma.snapshot.findUnique({ where: { id: snapshotId } });
+  if (!snapshot) return null;
+  return snapshot.data ?? (snapshot.fileUrl ? await download(snapshot.fileUrl) : null);
 }
 
 export interface RestoreDiff {

@@ -76,7 +76,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         status: s.expiresAt.getTime() < now ? "expired" : s.status,
         itemCount: s.itemCount,
         sizeBytes: s.sizeBytes,
-        hasFile: Boolean(s.fileUrl),
+        hasFile: Boolean(s.fileUrl || s.data),
         createdAt: s.createdAt.toISOString(),
         expiresAt: s.expiresAt.toISOString(),
       })),
