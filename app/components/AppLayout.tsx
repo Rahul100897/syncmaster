@@ -65,14 +65,14 @@ export default function AppLayout({ shop, plan, children }: AppLayoutProps) {
             <span className={styles.monogramS}>S</span>
             <span className={styles.monogramM}>M</span>
           </div>
-          <span className={styles.brandName}>SyncMaster</span>
-        </div>
-        <div className={styles.planBadgeWrap}>
-          <span
-            className={`${styles.planBadge} ${isPro ? styles.planPro : styles.planFree}`}
-          >
-            {isPro ? "PRO" : "FREE"}
-          </span>
+          <div className={styles.brandText}>
+            <span className={styles.brandName}>SyncMaster</span>
+            <span
+              className={`${styles.planBadge} ${isPro ? styles.planPro : styles.planFree}`}
+            >
+              {isPro ? "PRO" : "FREE"}
+            </span>
+          </div>
         </div>
 
         <nav className={styles.nav}>
