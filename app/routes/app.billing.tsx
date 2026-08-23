@@ -17,6 +17,7 @@ import { format } from "date-fns";
 import { authenticate, PRO_PLAN } from "../shopify.server";
 import { isPro, setPlanForShop } from "../lib/billing.server";
 import AppLayout from "../components/AppLayout";
+import { SkeletonBlock, SkeletonTwoColumn, useRouteLoading } from "../components/Skeleton";
 import type { AppOutletContext } from "./app";
 
 const isTest = process.env.NODE_ENV !== "production";
@@ -112,6 +113,30 @@ export default function Billing() {
   const navigate = useNavigate();
   const upgradeFetcher = useFetcher<typeof action>();
   const cancelFetcher = useFetcher<typeof action>();
+  const routeLoading = useRouteLoading();
+
+  if (routeLoading) {
+    return (
+      <AppLayout shop={shop} plan={plan}>
+        <BlockStack gap="500">
+          <BlockStack gap="100">
+            <SkeletonBlock width={120} height={24} />
+            <SkeletonBlock width={420} height={14} />
+          </BlockStack>
+          <Card>
+            <InlineStack align="space-between" blockAlign="center">
+              <BlockStack gap="100">
+                <SkeletonBlock width={160} height={16} />
+                <SkeletonBlock width={220} height={12} />
+              </BlockStack>
+              <SkeletonBlock width={140} height={16} />
+            </InlineStack>
+          </Card>
+          <SkeletonTwoColumn leftLines={5} rightLines={5} />
+        </BlockStack>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout shop={shop} plan={plan}>

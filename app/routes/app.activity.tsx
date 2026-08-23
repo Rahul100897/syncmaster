@@ -16,6 +16,7 @@ import { format } from "date-fns";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import AppLayout from "../components/AppLayout";
+import { SkeletonBlock, SkeletonTable, useRouteLoading } from "../components/Skeleton";
 import type { AppOutletContext } from "./app";
 
 const PAGE_SIZE = 50;
@@ -89,6 +90,30 @@ export default function ActivityLog() {
   const { type, range, hasNext, hasPrev, nextCursor, rows } = useLoaderData<typeof loader>();
   const { shop, plan } = useOutletContext<AppOutletContext>();
   const [searchParams, setSearchParams] = useSearchParams();
+  const routeLoading = useRouteLoading();
+
+  if (routeLoading) {
+    return (
+      <AppLayout shop={shop} plan={plan}>
+        <BlockStack gap="500">
+          <InlineStack align="space-between" blockAlign="center">
+            <BlockStack gap="100">
+              <SkeletonBlock width={160} height={24} />
+              <SkeletonBlock width={360} height={14} />
+            </BlockStack>
+            <SkeletonBlock width={120} height={40} radius={8} />
+          </InlineStack>
+          <Card>
+            <InlineStack gap="300">
+              <SkeletonBlock width={200} height={36} radius={8} />
+              <SkeletonBlock width={200} height={36} radius={8} />
+            </InlineStack>
+          </Card>
+          <SkeletonTable rows={8} columns={4} />
+        </BlockStack>
+      </AppLayout>
+    );
+  }
 
   const setFilter = (key: string, value: string) => {
     const next = new URLSearchParams(searchParams);

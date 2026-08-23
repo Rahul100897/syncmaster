@@ -24,6 +24,7 @@ import { formatDistanceToNow } from "date-fns";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import AppLayout from "../components/AppLayout";
+import { SkeletonBlock, SkeletonTable, useRouteLoading } from "../components/Skeleton";
 import type { AppOutletContext } from "./app";
 import styles from "../styles/jobs.module.css";
 
@@ -167,6 +168,21 @@ export default function Jobs() {
 
   const { selectedResources, allResourcesSelected, handleSelectionChange } =
     useIndexResourceState(jobs);
+  const routeLoading = useRouteLoading();
+
+  if (routeLoading) {
+    return (
+      <AppLayout shop={shop} plan={plan}>
+        <BlockStack gap="500">
+          <BlockStack gap="100">
+            <SkeletonBlock width={160} height={24} />
+            <SkeletonBlock width={380} height={14} />
+          </BlockStack>
+          <SkeletonTable rows={6} columns={6} />
+        </BlockStack>
+      </AppLayout>
+    );
+  }
 
   const rowMarkup = jobs.map((job, index) => (
     <IndexTable.Row

@@ -23,6 +23,7 @@ import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { isPro } from "../lib/billing.server";
 import AppLayout from "../components/AppLayout";
+import { SkeletonBlock, useRouteLoading } from "../components/Skeleton";
 import type { AppOutletContext } from "./app";
 
 const FREE_MAX_STORES = 2; // primary + 1 secondary
@@ -193,6 +194,38 @@ export default function ConnectStores() {
   const connectFetcher = useFetcher<typeof action>();
   const revalidator = useRevalidator();
   const [code, setCode] = useState("");
+  const routeLoading = useRouteLoading();
+
+  if (routeLoading) {
+    return (
+      <AppLayout shop={shop} plan={plan}>
+        <BlockStack gap="500">
+          <BlockStack gap="100">
+            <SkeletonBlock width={200} height={24} />
+            <SkeletonBlock width={360} height={14} />
+          </BlockStack>
+          <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
+            <Card>
+              <BlockStack gap="400">
+                <SkeletonBlock width={180} height={16} />
+                <SkeletonBlock width={280} height={12} />
+                <SkeletonBlock height={72} radius={12} />
+                <SkeletonBlock width={150} height={40} radius={8} />
+              </BlockStack>
+            </Card>
+            <Card>
+              <BlockStack gap="400">
+                <SkeletonBlock width={180} height={16} />
+                <SkeletonBlock width={280} height={12} />
+                <SkeletonBlock height={40} radius={8} />
+                <SkeletonBlock width={120} height={40} radius={8} />
+              </BlockStack>
+            </Card>
+          </InlineGrid>
+        </BlockStack>
+      </AppLayout>
+    );
+  }
 
   const generating = generateFetcher.state !== "idle";
   const connecting = connectFetcher.state !== "idle";

@@ -27,6 +27,7 @@ import { createSnapshot, restorePreview, restoreSnapshot, type RestoreDiff } fro
 import { isPro } from "../lib/billing.server";
 import AppLayout from "../components/AppLayout";
 import ProLock from "../components/ProLock";
+import { SkeletonBlock, SkeletonTable, useRouteLoading } from "../components/Skeleton";
 import type { AppOutletContext } from "./app";
 
 async function connectionFor(shop: string) {
@@ -127,6 +128,7 @@ export default function Snapshots() {
 
   const [restoreId, setRestoreId] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
+  const routeLoading = useRouteLoading();
 
   const creating = createFetcher.state !== "idle";
   const restoring = restoreFetcher.state !== "idle";
@@ -167,6 +169,23 @@ export default function Snapshots() {
 
   const diff: RestoreDiff | null =
     previewFetcher.data?.ok && "diff" in previewFetcher.data ? previewFetcher.data.diff : null;
+
+  if (routeLoading) {
+    return (
+      <AppLayout shop={shop} plan={plan}>
+        <BlockStack gap="500">
+          <InlineStack align="space-between" blockAlign="center">
+            <BlockStack gap="100">
+              <SkeletonBlock width={160} height={24} />
+              <SkeletonBlock width={400} height={14} />
+            </BlockStack>
+            <SkeletonBlock width={170} height={40} radius={8} />
+          </InlineStack>
+          <SkeletonTable rows={5} columns={5} />
+        </BlockStack>
+      </AppLayout>
+    );
+  }
 
   if (data.locked) {
     return (

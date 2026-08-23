@@ -20,6 +20,7 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import AppLayout from "../components/AppLayout";
+import { SkeletonBlock, SkeletonFormRow, useRouteLoading } from "../components/Skeleton";
 import type { AppOutletContext } from "./app";
 
 interface NotificationPrefs {
@@ -135,6 +136,7 @@ export default function Settings() {
 
   const [settings, setSettings] = useState<SettingsConfig>(data.settings);
   const [confirm, setConfirm] = useState<ConfirmKind>(null);
+  const routeLoading = useRouteLoading();
 
   useEffect(() => {
     for (const f of [settingsFetcher, connFetcher, dangerFetcher]) {
@@ -149,6 +151,32 @@ export default function Settings() {
   useEffect(() => {
     if (dangerFetcher.state === "idle" && dangerFetcher.data?.ok) setConfirm(null);
   }, [dangerFetcher.state, dangerFetcher.data]);
+
+  if (routeLoading) {
+    return (
+      <AppLayout shop={shop} plan={plan}>
+        <BlockStack gap="500">
+          <SkeletonBlock width={120} height={24} />
+          <Card>
+            <BlockStack gap="400">
+              <SkeletonBlock width={160} height={16} />
+              {Array.from({ length: 4 }).map((_, i) => (
+                <SkeletonFormRow key={i} />
+              ))}
+            </BlockStack>
+          </Card>
+          <Card>
+            <BlockStack gap="400">
+              <SkeletonBlock width={160} height={16} />
+              {Array.from({ length: 4 }).map((_, i) => (
+                <SkeletonFormRow key={i} />
+              ))}
+            </BlockStack>
+          </Card>
+        </BlockStack>
+      </AppLayout>
+    );
+  }
 
   const setNotif = (key: keyof NotificationPrefs, v: boolean) =>
     setSettings((s) => ({ ...s, notifications: { ...s.notifications, [key]: v } }));

@@ -19,6 +19,7 @@ import { getHealth, type CredentialStatus } from "../lib/health.server";
 import { isPro } from "../lib/billing.server";
 import AppLayout from "../components/AppLayout";
 import ProLock from "../components/ProLock";
+import { SkeletonBlock, SkeletonTwoColumn, useRouteLoading } from "../components/Skeleton";
 import type { AppOutletContext } from "./app";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -53,6 +54,27 @@ export default function Health() {
   const { shop, plan } = useOutletContext<AppOutletContext>();
   const navigate = useNavigate();
   const revalidator = useRevalidator();
+  const routeLoading = useRouteLoading();
+
+  if (routeLoading) {
+    return (
+      <AppLayout shop={shop} plan={plan}>
+        <BlockStack gap="500">
+          <BlockStack gap="100">
+            <SkeletonBlock width={160} height={24} />
+            <SkeletonBlock width={340} height={14} />
+          </BlockStack>
+          <Card>
+            <BlockStack gap="300">
+              <SkeletonBlock width={120} height={16} />
+              <SkeletonBlock height={40} radius={8} />
+            </BlockStack>
+          </Card>
+          <SkeletonTwoColumn leftLines={4} rightLines={4} withButton={false} />
+        </BlockStack>
+      </AppLayout>
+    );
+  }
 
   if (data.locked || !data.weekly) {
     return (

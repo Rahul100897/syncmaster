@@ -19,6 +19,7 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import AppLayout from "../components/AppLayout";
+import { SkeletonBlock, SkeletonFormRow, useRouteLoading } from "../components/Skeleton";
 import type { AppOutletContext } from "./app";
 
 const FIELDS = [
@@ -171,6 +172,7 @@ export default function SyncRules() {
 
   const [state, setState] = useState<RulesState | null>(data.state);
   const saving = fetcher.state !== "idle";
+  const routeLoading = useRouteLoading();
 
   useEffect(() => {
     if (fetcher.state === "idle" && fetcher.data) {
@@ -178,6 +180,37 @@ export default function SyncRules() {
       else shopify.toast.show(fetcher.data.error, { isError: true });
     }
   }, [fetcher.state, fetcher.data, shopify]);
+
+  if (routeLoading) {
+    return (
+      <AppLayout shop={shop} plan={plan}>
+        <BlockStack gap="500">
+          <BlockStack gap="100">
+            <SkeletonBlock width={160} height={24} />
+            <SkeletonBlock width={360} height={14} />
+          </BlockStack>
+          <Card padding="0">
+            <Box padding="400"><SkeletonBlock width={80} height={16} /></Box>
+            <Box padding="400">
+              <BlockStack gap="400">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <SkeletonFormRow key={i} />
+                ))}
+              </BlockStack>
+            </Box>
+          </Card>
+          <SkeletonBlock width={220} height={16} />
+          <Card>
+            <BlockStack gap="400">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <SkeletonFormRow key={i} />
+              ))}
+            </BlockStack>
+          </Card>
+        </BlockStack>
+      </AppLayout>
+    );
+  }
 
   if (!data.connected || !state) {
     return (

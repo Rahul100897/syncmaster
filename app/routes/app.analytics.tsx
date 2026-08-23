@@ -19,8 +19,6 @@ import {
   Divider,
   InlineGrid,
   InlineStack,
-  SkeletonBodyText,
-  SkeletonDisplayText,
   Text,
 } from "@shopify/polaris";
 
@@ -29,6 +27,7 @@ import { getAnalytics, type Analytics } from "../lib/analytics.server";
 import { isPro } from "../lib/billing.server";
 import AppLayout from "../components/AppLayout";
 import ProLock from "../components/ProLock";
+import { SkeletonBlock, SkeletonCard, SkeletonTable } from "../components/Skeleton";
 import type { AppOutletContext } from "./app";
 
 const RANGES = [
@@ -164,10 +163,16 @@ function AnalyticsSkeleton() {
     <BlockStack gap="400">
       <InlineGrid columns={{ xs: 1, sm: 3 }} gap="300">
         {[0, 1, 2].map((i) => (
-          <Card key={i}><BlockStack gap="200"><SkeletonDisplayText size="small" /><SkeletonBodyText lines={1} /></BlockStack></Card>
+          <SkeletonCard key={i} />
         ))}
       </InlineGrid>
-      <Card><SkeletonBodyText lines={5} /></Card>
+      <Card>
+        <BlockStack gap="300">
+          <SkeletonBlock width={160} height={16} />
+          <SkeletonBlock height={400} radius={8} />
+        </BlockStack>
+      </Card>
+      <SkeletonTable rows={6} columns={4} />
     </BlockStack>
   );
 }
