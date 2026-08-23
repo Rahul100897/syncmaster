@@ -1,6 +1,8 @@
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
+import { defer } from "@remix-run/node";
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import {
+  Await,
   useLoaderData,
   useNavigate,
   useOutletContext,
@@ -24,31 +26,27 @@ import { formatDistanceToNow } from "date-fns";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import AppLayout from "../components/AppLayout";
-import { SkeletonBlock, SkeletonTable, useRouteLoading } from "../components/Skeleton";
+import { SkeletonBlock, SkeletonTable } from "../components/Skeleton";
 import type { AppOutletContext } from "./app";
 import styles from "../styles/jobs.module.css";
 
 const RUNNING_STATES = ["pending", "running"];
 
-export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
-  const shop = session.shop;
-  const url = new URL(request.url);
-  const selectedId = url.searchParams.get("job");
-
-  const connections = await prisma.storeConnection.findMany({
-    where: { OR: [{ primaryShopId: shop }, { secondaryShopId: shop }] },
-    select: { id: true },
-  });
-  const connectionIds = connections.map((c) => c.id);
-
-  const jobsRaw = await prisma.syncJob.findMany({
-    where: { connectionId: { in: connectionIds } },
-    orderBy: { startedAt: "desc" },
-    take: 50,
-  });
-
-  let selected: {
+interface JobsData {
+  jobs: Array<{
+    id: string;
+    type: string;
+    status: string;
+    totalItems: number;
+    successItems: number;
+    failedItems: number;
+    triggeredBy: string;
+    sourceShop: string | null;
+    targetShop: string | null;
+    startedAt: string;
+    completedAt: string | null;
+  }>;
+  selected: {
     id: string;
     type: string;
     status: string;
@@ -63,50 +61,75 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       error: string | null;
       createdAt: string;
     }>;
-  } | null = null;
+  } | null;
+  anyRunning: boolean;
+}
 
-  if (selectedId && jobsRaw.some((j) => j.id === selectedId)) {
-    const events = await prisma.syncEvent.findMany({
-      where: { jobId: selectedId },
-      orderBy: { createdAt: "desc" },
-      take: 200,
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+  const { session } = await authenticate.admin(request);
+  const shop = session.shop;
+  const url = new URL(request.url);
+  const selectedId = url.searchParams.get("job");
+
+  const data: Promise<JobsData> = (async () => {
+    const connections = await prisma.storeConnection.findMany({
+      where: { OR: [{ primaryShopId: shop }, { secondaryShopId: shop }] },
+      select: { id: true },
     });
-    const job = jobsRaw.find((j) => j.id === selectedId);
-    selected = {
-      id: selectedId,
-      type: job?.type ?? "",
-      status: job?.status ?? "",
-      events: events.map((e) => ({
-        id: e.id,
-        resourceType: e.resourceType,
-        resourceId: e.resourceId,
-        field: e.field,
-        oldValue: e.oldValue,
-        newValue: e.newValue,
-        status: e.status,
-        error: e.error,
-        createdAt: e.createdAt.toISOString(),
-      })),
-    };
-  }
+    const connectionIds = connections.map((c) => c.id);
 
-  return {
-    jobs: jobsRaw.map((j) => ({
-      id: j.id,
-      type: j.type,
-      status: j.status,
-      totalItems: j.totalItems,
-      successItems: j.successItems,
-      failedItems: j.failedItems,
-      triggeredBy: j.triggeredBy,
-      sourceShop: j.sourceShop,
-      targetShop: j.targetShop,
-      startedAt: j.startedAt.toISOString(),
-      completedAt: j.completedAt?.toISOString() ?? null,
-    })),
-    selected,
-    anyRunning: jobsRaw.some((j) => RUNNING_STATES.includes(j.status)),
-  };
+    const jobsRaw = await prisma.syncJob.findMany({
+      where: { connectionId: { in: connectionIds } },
+      orderBy: { startedAt: "desc" },
+      take: 50,
+    });
+
+    let selected: JobsData["selected"] = null;
+    if (selectedId && jobsRaw.some((j) => j.id === selectedId)) {
+      const events = await prisma.syncEvent.findMany({
+        where: { jobId: selectedId },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+      });
+      const job = jobsRaw.find((j) => j.id === selectedId);
+      selected = {
+        id: selectedId,
+        type: job?.type ?? "",
+        status: job?.status ?? "",
+        events: events.map((e) => ({
+          id: e.id,
+          resourceType: e.resourceType,
+          resourceId: e.resourceId,
+          field: e.field,
+          oldValue: e.oldValue,
+          newValue: e.newValue,
+          status: e.status,
+          error: e.error,
+          createdAt: e.createdAt.toISOString(),
+        })),
+      };
+    }
+
+    return {
+      jobs: jobsRaw.map((j) => ({
+        id: j.id,
+        type: j.type,
+        status: j.status,
+        totalItems: j.totalItems,
+        successItems: j.successItems,
+        failedItems: j.failedItems,
+        triggeredBy: j.triggeredBy,
+        sourceShop: j.sourceShop,
+        targetShop: j.targetShop,
+        startedAt: j.startedAt.toISOString(),
+        completedAt: j.completedAt?.toISOString() ?? null,
+      })),
+      selected,
+      anyRunning: jobsRaw.some((j) => RUNNING_STATES.includes(j.status)),
+    };
+  })();
+
+  return defer({ data });
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -150,9 +173,20 @@ function duration(startedAt: string, completedAt: string | null): string {
   return `${Math.round(ms / 60000)}m`;
 }
 
-export default function Jobs() {
-  const { jobs, selected, anyRunning } = useLoaderData<typeof loader>();
-  const { shop, plan } = useOutletContext<AppOutletContext>();
+function JobsSkeleton() {
+  return (
+    <BlockStack gap="500">
+      <BlockStack gap="100">
+        <SkeletonBlock width={160} height={24} />
+        <SkeletonBlock width={380} height={14} />
+      </BlockStack>
+      <SkeletonTable rows={6} columns={6} />
+    </BlockStack>
+  );
+}
+
+function JobsBody({ data }: { data: JobsData }) {
+  const { jobs, selected, anyRunning } = data;
   const navigate = useNavigate();
   const revalidator = useRevalidator();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -168,21 +202,6 @@ export default function Jobs() {
 
   const { selectedResources, allResourcesSelected, handleSelectionChange } =
     useIndexResourceState(jobs);
-  const routeLoading = useRouteLoading();
-
-  if (routeLoading) {
-    return (
-      <AppLayout shop={shop} plan={plan}>
-        <BlockStack gap="500">
-          <BlockStack gap="100">
-            <SkeletonBlock width={160} height={24} />
-            <SkeletonBlock width={380} height={14} />
-          </BlockStack>
-          <SkeletonTable rows={6} columns={6} />
-        </BlockStack>
-      </AppLayout>
-    );
-  }
 
   const rowMarkup = jobs.map((job, index) => (
     <IndexTable.Row
@@ -220,8 +239,7 @@ export default function Jobs() {
   ));
 
   return (
-    <AppLayout shop={shop} plan={plan}>
-      <BlockStack gap="500">
+    <BlockStack gap="500">
         <InlineStack align="space-between" blockAlign="center">
           <BlockStack gap="100">
             <Text as="h1" variant="headingXl" fontWeight="bold">
@@ -326,7 +344,18 @@ export default function Jobs() {
             )}
           </Card>
         ) : null}
-      </BlockStack>
+    </BlockStack>
+  );
+}
+
+export default function Jobs() {
+  const { data } = useLoaderData<typeof loader>();
+  const { shop, plan } = useOutletContext<AppOutletContext>();
+  return (
+    <AppLayout shop={shop} plan={plan}>
+      <Suspense fallback={<JobsSkeleton />}>
+        <Await resolve={data}>{(resolved) => <JobsBody data={resolved} />}</Await>
+      </Suspense>
     </AppLayout>
   );
 }

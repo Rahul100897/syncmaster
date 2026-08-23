@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { defer } from "@remix-run/node";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
-import { useFetcher, useLoaderData, useNavigate, useOutletContext } from "@remix-run/react";
+import { Await, useFetcher, useLoaderData, useNavigate, useOutletContext } from "@remix-run/react";
 import {
   BlockStack,
   Box,
@@ -19,7 +20,7 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import AppLayout from "../components/AppLayout";
-import { SkeletonBlock, SkeletonFormRow, useRouteLoading } from "../components/Skeleton";
+import { SkeletonBlock, SkeletonFormRow } from "../components/Skeleton";
 import type { AppOutletContext } from "./app";
 
 const FIELDS = [
@@ -68,6 +69,9 @@ interface RulesState {
   bufferPercent: string;
   selective: Selective;
 }
+type RulesData =
+  | { connected: false; state: null }
+  | { connected: true; state: RulesState };
 
 async function connectionFor(shop: string) {
   return prisma.storeConnection.findFirst({
@@ -78,41 +82,46 @@ async function connectionFor(shop: string) {
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-  const connection = await connectionFor(session.shop);
-  if (!connection) return { connected: false as const, state: null };
 
-  const rules = await prisma.syncRule.findMany({ where: { connectionId: connection.id } });
-  const byField = new Map(rules.map((r) => [r.field, r]));
+  const data: Promise<RulesData> = (async () => {
+    const connection = await connectionFor(session.shop);
+    if (!connection) return { connected: false as const, state: null };
 
-  const fields: Record<string, FieldRule> = {};
-  for (const f of FIELDS) {
-    const r = byField.get(f.key);
-    fields[f.key] = {
-      enabled: r?.enabled ?? true,
-      direction: r?.direction ?? "primary_to_secondary",
+    const rules = await prisma.syncRule.findMany({ where: { connectionId: connection.id } });
+    const byField = new Map(rules.map((r) => [r.field, r]));
+
+    const fields: Record<string, FieldRule> = {};
+    for (const f of FIELDS) {
+      const r = byField.get(f.key);
+      fields[f.key] = {
+        enabled: r?.enabled ?? true,
+        direction: r?.direction ?? "primary_to_secondary",
+      };
+    }
+    const priceRule = byField.get("price");
+    const inventoryRule = byField.get("inventory");
+    const selective = (connection.filterConfig as Selective | null) ?? {
+      includeTags: "",
+      excludeTags: "",
+      includeCollections: "",
+      includeVendors: "",
     };
-  }
-  const priceRule = byField.get("price");
-  const inventoryRule = byField.get("inventory");
-  const selective = (connection.filterConfig as Selective | null) ?? {
-    includeTags: "",
-    excludeTags: "",
-    includeCollections: "",
-    includeVendors: "",
-  };
 
-  const state: RulesState = {
-    fields,
-    price: {
-      markup: priceRule?.priceMarkup != null ? String(priceRule.priceMarkup) : "",
-      fixed: priceRule?.priceFixed != null ? String(priceRule.priceFixed) : "",
-      rounding: priceRule?.rounding ?? "none",
-    },
-    bufferPercent: inventoryRule?.bufferPercent != null ? String(inventoryRule.bufferPercent) : "",
-    selective,
-  };
+    const state: RulesState = {
+      fields,
+      price: {
+        markup: priceRule?.priceMarkup != null ? String(priceRule.priceMarkup) : "",
+        fixed: priceRule?.priceFixed != null ? String(priceRule.priceFixed) : "",
+        rounding: priceRule?.rounding ?? "none",
+      },
+      bufferPercent: inventoryRule?.bufferPercent != null ? String(inventoryRule.bufferPercent) : "",
+      selective,
+    };
 
-  return { connected: true as const, state };
+    return { connected: true as const, state };
+  })();
+
+  return defer({ data });
 };
 
 function num(v: string): number | null {
@@ -163,16 +172,42 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   return { ok: true as const, message: "Sync rules saved." };
 };
 
-export default function SyncRules() {
-  const data = useLoaderData<typeof loader>();
-  const { shop, plan } = useOutletContext<AppOutletContext>();
+function RulesSkeleton() {
+  return (
+    <BlockStack gap="500">
+      <BlockStack gap="100">
+        <SkeletonBlock width={160} height={24} />
+        <SkeletonBlock width={360} height={14} />
+      </BlockStack>
+      <Card padding="0">
+        <Box padding="400"><SkeletonBlock width={80} height={16} /></Box>
+        <Box padding="400">
+          <BlockStack gap="400">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <SkeletonFormRow key={i} />
+            ))}
+          </BlockStack>
+        </Box>
+      </Card>
+      <SkeletonBlock width={220} height={16} />
+      <Card>
+        <BlockStack gap="400">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <SkeletonFormRow key={i} />
+          ))}
+        </BlockStack>
+      </Card>
+    </BlockStack>
+  );
+}
+
+function RulesBody({ data, shop, plan }: { data: RulesData; shop: string; plan: "free" | "pro" }) {
   const navigate = useNavigate();
   const shopify = useAppBridge();
   const fetcher = useFetcher<typeof action>();
 
   const [state, setState] = useState<RulesState | null>(data.state);
   const saving = fetcher.state !== "idle";
-  const routeLoading = useRouteLoading();
 
   useEffect(() => {
     if (fetcher.state === "idle" && fetcher.data) {
@@ -181,56 +216,23 @@ export default function SyncRules() {
     }
   }, [fetcher.state, fetcher.data, shopify]);
 
-  if (routeLoading) {
-    return (
-      <AppLayout shop={shop} plan={plan}>
-        <BlockStack gap="500">
-          <BlockStack gap="100">
-            <SkeletonBlock width={160} height={24} />
-            <SkeletonBlock width={360} height={14} />
-          </BlockStack>
-          <Card padding="0">
-            <Box padding="400"><SkeletonBlock width={80} height={16} /></Box>
-            <Box padding="400">
-              <BlockStack gap="400">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <SkeletonFormRow key={i} />
-                ))}
-              </BlockStack>
-            </Box>
-          </Card>
-          <SkeletonBlock width={220} height={16} />
-          <Card>
-            <BlockStack gap="400">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <SkeletonFormRow key={i} />
-              ))}
-            </BlockStack>
-          </Card>
-        </BlockStack>
-      </AppLayout>
-    );
-  }
-
   if (!data.connected || !state) {
     return (
-      <AppLayout shop={shop} plan={plan}>
-        <BlockStack gap="500">
-          <Text as="h1" variant="headingXl" fontWeight="bold">
-            Sync Rules
-          </Text>
-          <Card>
-            <BlockStack gap="300" inlineAlign="center">
-              <Text as="p" tone="subdued">
-                Connect a store pair to configure sync rules.
-              </Text>
-              <Button variant="primary" onClick={() => navigate("/app/connect")}>
-                Connect stores
-              </Button>
-            </BlockStack>
-          </Card>
-        </BlockStack>
-      </AppLayout>
+      <BlockStack gap="500">
+        <Text as="h1" variant="headingXl" fontWeight="bold">
+          Sync Rules
+        </Text>
+        <Card>
+          <BlockStack gap="300" inlineAlign="center">
+            <Text as="p" tone="subdued">
+              Connect a store pair to configure sync rules.
+            </Text>
+            <Button variant="primary" onClick={() => navigate("/app/connect")}>
+              Connect stores
+            </Button>
+          </BlockStack>
+        </Card>
+      </BlockStack>
     );
   }
 
@@ -240,8 +242,7 @@ export default function SyncRules() {
   const save = () => fetcher.submit({ payload: JSON.stringify(state) }, { method: "post" });
 
   return (
-    <AppLayout shop={shop} plan={plan}>
-      <BlockStack gap="500">
+    <BlockStack gap="500">
         <InlineStack align="space-between" blockAlign="center">
           <BlockStack gap="100">
             <Text as="h1" variant="headingXl" fontWeight="bold">
@@ -361,7 +362,18 @@ export default function SyncRules() {
             </InlineGrid>
           </BlockStack>
         </Card>
-      </BlockStack>
+    </BlockStack>
+  );
+}
+
+export default function SyncRules() {
+  const { data } = useLoaderData<typeof loader>();
+  const { shop, plan } = useOutletContext<AppOutletContext>();
+  return (
+    <AppLayout shop={shop} plan={plan}>
+      <Suspense fallback={<RulesSkeleton />}>
+        <Await resolve={data}>{(resolved) => <RulesBody data={resolved} shop={shop} plan={plan} />}</Await>
+      </Suspense>
     </AppLayout>
   );
 }

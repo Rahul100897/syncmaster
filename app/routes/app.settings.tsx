@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { defer } from "@remix-run/node";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
-import { useFetcher, useLoaderData, useOutletContext, useNavigate } from "@remix-run/react";
+import { Await, useFetcher, useLoaderData, useOutletContext, useNavigate } from "@remix-run/react";
 import {
   Badge,
   BlockStack,
@@ -20,7 +21,7 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import AppLayout from "../components/AppLayout";
-import { SkeletonBlock, SkeletonFormRow, useRouteLoading } from "../components/Skeleton";
+import { SkeletonBlock, SkeletonFormRow } from "../components/Skeleton";
 import type { AppOutletContext } from "./app";
 
 interface NotificationPrefs {
@@ -36,6 +37,17 @@ interface SettingsConfig {
   offPeakEnd: string;
 }
 
+interface SettingsData {
+  shop: string;
+  settings: SettingsConfig;
+  connections: Array<{
+    id: string;
+    primaryShopId: string;
+    secondaryShopId: string | null;
+    status: string;
+  }>;
+}
+
 const DEFAULT_SETTINGS: SettingsConfig = {
   notifications: { syncFailed: true, anomaly: true, credExpiring: true, disconnected: true },
   schedule: "realtime",
@@ -45,23 +57,28 @@ const DEFAULT_SETTINGS: SettingsConfig = {
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-  const connections = await prisma.storeConnection.findMany({
-    where: { OR: [{ primaryShopId: session.shop }, { secondaryShopId: session.shop }] },
-    orderBy: { createdAt: "desc" },
-  });
-  const primary = connections.find((c) => c.primaryShopId === session.shop) ?? connections[0];
-  const settings = (primary?.settingsConfig as SettingsConfig | null) ?? DEFAULT_SETTINGS;
 
-  return {
-    shop: session.shop,
-    settings,
-    connections: connections.map((c) => ({
-      id: c.id,
-      primaryShopId: c.primaryShopId,
-      secondaryShopId: c.secondaryShopId,
-      status: c.status,
-    })),
-  };
+  const data: Promise<SettingsData> = (async () => {
+    const connections = await prisma.storeConnection.findMany({
+      where: { OR: [{ primaryShopId: session.shop }, { secondaryShopId: session.shop }] },
+      orderBy: { createdAt: "desc" },
+    });
+    const primary = connections.find((c) => c.primaryShopId === session.shop) ?? connections[0];
+    const settings = (primary?.settingsConfig as SettingsConfig | null) ?? DEFAULT_SETTINGS;
+
+    return {
+      shop: session.shop,
+      settings,
+      connections: connections.map((c) => ({
+        id: c.id,
+        primaryShopId: c.primaryShopId,
+        secondaryShopId: c.secondaryShopId,
+        status: c.status,
+      })),
+    };
+  })();
+
+  return defer({ data });
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -125,9 +142,31 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 type ConfirmKind = "disconnectAll" | "clearData" | null;
 
-export default function Settings() {
-  const data = useLoaderData<typeof loader>();
-  const { shop, plan } = useOutletContext<AppOutletContext>();
+function SettingsSkeleton() {
+  return (
+    <BlockStack gap="500">
+      <SkeletonBlock width={120} height={24} />
+      <Card>
+        <BlockStack gap="400">
+          <SkeletonBlock width={160} height={16} />
+          {Array.from({ length: 4 }).map((_, i) => (
+            <SkeletonFormRow key={i} />
+          ))}
+        </BlockStack>
+      </Card>
+      <Card>
+        <BlockStack gap="400">
+          <SkeletonBlock width={160} height={16} />
+          {Array.from({ length: 4 }).map((_, i) => (
+            <SkeletonFormRow key={i} />
+          ))}
+        </BlockStack>
+      </Card>
+    </BlockStack>
+  );
+}
+
+function SettingsBody({ data, shop, plan }: { data: SettingsData; shop: string; plan: "free" | "pro" }) {
   const navigate = useNavigate();
   const shopify = useAppBridge();
   const settingsFetcher = useFetcher<typeof action>();
@@ -136,7 +175,6 @@ export default function Settings() {
 
   const [settings, setSettings] = useState<SettingsConfig>(data.settings);
   const [confirm, setConfirm] = useState<ConfirmKind>(null);
-  const routeLoading = useRouteLoading();
 
   useEffect(() => {
     for (const f of [settingsFetcher, connFetcher, dangerFetcher]) {
@@ -152,37 +190,11 @@ export default function Settings() {
     if (dangerFetcher.state === "idle" && dangerFetcher.data?.ok) setConfirm(null);
   }, [dangerFetcher.state, dangerFetcher.data]);
 
-  if (routeLoading) {
-    return (
-      <AppLayout shop={shop} plan={plan}>
-        <BlockStack gap="500">
-          <SkeletonBlock width={120} height={24} />
-          <Card>
-            <BlockStack gap="400">
-              <SkeletonBlock width={160} height={16} />
-              {Array.from({ length: 4 }).map((_, i) => (
-                <SkeletonFormRow key={i} />
-              ))}
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="400">
-              <SkeletonBlock width={160} height={16} />
-              {Array.from({ length: 4 }).map((_, i) => (
-                <SkeletonFormRow key={i} />
-              ))}
-            </BlockStack>
-          </Card>
-        </BlockStack>
-      </AppLayout>
-    );
-  }
-
   const setNotif = (key: keyof NotificationPrefs, v: boolean) =>
     setSettings((s) => ({ ...s, notifications: { ...s.notifications, [key]: v } }));
 
   return (
-    <AppLayout shop={shop} plan={plan}>
+    <>
       <BlockStack gap="500">
         <Text as="h1" variant="headingXl" fontWeight="bold">
           Settings
@@ -314,6 +326,18 @@ export default function Settings() {
           </Text>
         </Modal.Section>
       </Modal>
+    </>
+  );
+}
+
+export default function Settings() {
+  const { data } = useLoaderData<typeof loader>();
+  const { shop, plan } = useOutletContext<AppOutletContext>();
+  return (
+    <AppLayout shop={shop} plan={plan}>
+      <Suspense fallback={<SettingsSkeleton />}>
+        <Await resolve={data}>{(resolved) => <SettingsBody data={resolved} shop={shop} plan={plan} />}</Await>
+      </Suspense>
     </AppLayout>
   );
 }

@@ -1,5 +1,13 @@
+import { Suspense } from "react";
+import { defer } from "@remix-run/node";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
-import { useLoaderData, useNavigate, useOutletContext, useFetcher } from "@remix-run/react";
+import {
+  Await,
+  useLoaderData,
+  useNavigate,
+  useOutletContext,
+  useFetcher,
+} from "@remix-run/react";
 import {
   Badge,
   BlockStack,
@@ -17,7 +25,7 @@ import { format } from "date-fns";
 import { authenticate, PRO_PLAN } from "../shopify.server";
 import { isPro, setPlanForShop } from "../lib/billing.server";
 import AppLayout from "../components/AppLayout";
-import { SkeletonBlock, SkeletonTwoColumn, useRouteLoading } from "../components/Skeleton";
+import { SkeletonBlock, SkeletonTwoColumn } from "../components/Skeleton";
 import type { AppOutletContext } from "./app";
 
 const isTest = process.env.NODE_ENV !== "production";
@@ -38,28 +46,39 @@ interface SubResp {
   };
 }
 
+interface BillingData {
+  pro: boolean;
+  renewsAt: string | null;
+  subscriptionId: string | null;
+}
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
-  const pro = await isPro(session.shop);
-  await setPlanForShop(session.shop, pro ? "pro" : "free");
 
-  let renewsAt: string | null = null;
-  let subscriptionId: string | null = null;
-  if (pro) {
-    try {
-      const res = await admin.graphql(SUB_DETAILS);
-      const json = (await res.json()) as SubResp;
-      const sub = json.data?.currentAppInstallation.activeSubscriptions.find(
-        (s) => s.status === "ACTIVE",
-      );
-      renewsAt = sub?.currentPeriodEnd ?? null;
-      subscriptionId = sub?.id ?? null;
-    } catch (error) {
-      console.error(`[billing] sub details failed for ${session.shop}:`, error);
+  const data: Promise<BillingData> = (async () => {
+    const pro = await isPro(session.shop);
+    await setPlanForShop(session.shop, pro ? "pro" : "free");
+
+    let renewsAt: string | null = null;
+    let subscriptionId: string | null = null;
+    if (pro) {
+      try {
+        const res = await admin.graphql(SUB_DETAILS);
+        const json = (await res.json()) as SubResp;
+        const sub = json.data?.currentAppInstallation.activeSubscriptions.find(
+          (s) => s.status === "ACTIVE",
+        );
+        renewsAt = sub?.currentPeriodEnd ?? null;
+        subscriptionId = sub?.id ?? null;
+      } catch (error) {
+        console.error(`[billing] sub details failed for ${session.shop}:`, error);
+      }
     }
-  }
 
-  return { pro, renewsAt, subscriptionId };
+    return { pro, renewsAt, subscriptionId };
+  })();
+
+  return defer({ data });
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -107,40 +126,35 @@ const FREE_FEATURES = [
   "Pre-sync conflict scanner",
 ];
 
-export default function Billing() {
-  const { pro, renewsAt, subscriptionId } = useLoaderData<typeof loader>();
-  const { shop, plan } = useOutletContext<AppOutletContext>();
+function BillingSkeleton() {
+  return (
+    <BlockStack gap="500">
+      <BlockStack gap="100">
+        <SkeletonBlock width={120} height={24} />
+        <SkeletonBlock width={420} height={14} />
+      </BlockStack>
+      <Card>
+        <InlineStack align="space-between" blockAlign="center">
+          <BlockStack gap="100">
+            <SkeletonBlock width={160} height={16} />
+            <SkeletonBlock width={220} height={12} />
+          </BlockStack>
+          <SkeletonBlock width={140} height={16} />
+        </InlineStack>
+      </Card>
+      <SkeletonTwoColumn leftLines={5} rightLines={5} />
+    </BlockStack>
+  );
+}
+
+function BillingBody({ data, shop, plan }: { data: BillingData; shop: string; plan: "free" | "pro" }) {
+  const { pro, renewsAt, subscriptionId } = data;
   const navigate = useNavigate();
   const upgradeFetcher = useFetcher<typeof action>();
   const cancelFetcher = useFetcher<typeof action>();
-  const routeLoading = useRouteLoading();
-
-  if (routeLoading) {
-    return (
-      <AppLayout shop={shop} plan={plan}>
-        <BlockStack gap="500">
-          <BlockStack gap="100">
-            <SkeletonBlock width={120} height={24} />
-            <SkeletonBlock width={420} height={14} />
-          </BlockStack>
-          <Card>
-            <InlineStack align="space-between" blockAlign="center">
-              <BlockStack gap="100">
-                <SkeletonBlock width={160} height={16} />
-                <SkeletonBlock width={220} height={12} />
-              </BlockStack>
-              <SkeletonBlock width={140} height={16} />
-            </InlineStack>
-          </Card>
-          <SkeletonTwoColumn leftLines={5} rightLines={5} />
-        </BlockStack>
-      </AppLayout>
-    );
-  }
 
   return (
-    <AppLayout shop={shop} plan={plan}>
-      <BlockStack gap="500">
+    <BlockStack gap="500">
         <BlockStack gap="100">
           <Text as="h1" variant="headingXl" fontWeight="bold">
             Billing
@@ -230,6 +244,17 @@ export default function Billing() {
           ← Back to dashboard
         </Button>
       </BlockStack>
+  );
+}
+
+export default function Billing() {
+  const { data } = useLoaderData<typeof loader>();
+  const { shop, plan } = useOutletContext<AppOutletContext>();
+  return (
+    <AppLayout shop={shop} plan={plan}>
+      <Suspense fallback={<BillingSkeleton />}>
+        <Await resolve={data}>{(resolved) => <BillingBody data={resolved} shop={shop} plan={plan} />}</Await>
+      </Suspense>
     </AppLayout>
   );
 }

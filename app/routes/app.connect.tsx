@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import crypto from "node:crypto";
+import { defer } from "@remix-run/node";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import {
+  Await,
   useFetcher,
   useLoaderData,
   useOutletContext,
@@ -23,7 +25,7 @@ import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { isPro } from "../lib/billing.server";
 import AppLayout from "../components/AppLayout";
-import { SkeletonBlock, useRouteLoading } from "../components/Skeleton";
+import { SkeletonBlock } from "../components/Skeleton";
 import type { AppOutletContext } from "./app";
 
 const FREE_MAX_STORES = 2; // primary + 1 secondary
@@ -51,26 +53,36 @@ function toDTO(c: {
   return { ...c, connectedAt: c.connectedAt?.toISOString() ?? null };
 }
 
+interface ConnectData {
+  shop: string;
+  asPrimary: ConnectionDTO | null;
+  asSecondary: ConnectionDTO | null;
+}
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
 
-  const [asPrimary, asSecondary] = await Promise.all([
-    prisma.storeConnection.findFirst({
-      where: { primaryShopId: shop, status: { in: ["pending", "connected"] } },
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.storeConnection.findFirst({
-      where: { secondaryShopId: shop, status: "connected" },
-      orderBy: { createdAt: "desc" },
-    }),
-  ]);
+  const data: Promise<ConnectData> = (async () => {
+    const [asPrimary, asSecondary] = await Promise.all([
+      prisma.storeConnection.findFirst({
+        where: { primaryShopId: shop, status: { in: ["pending", "connected"] } },
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.storeConnection.findFirst({
+        where: { secondaryShopId: shop, status: "connected" },
+        orderBy: { createdAt: "desc" },
+      }),
+    ]);
 
-  return {
-    shop,
-    asPrimary: asPrimary ? toDTO(asPrimary) : null,
-    asSecondary: asSecondary ? toDTO(asSecondary) : null,
-  };
+    return {
+      shop,
+      asPrimary: asPrimary ? toDTO(asPrimary) : null,
+      asSecondary: asSecondary ? toDTO(asSecondary) : null,
+    };
+  })();
+
+  return defer({ data });
 };
 
 async function generateUniqueCode(): Promise<string> {
@@ -187,45 +199,41 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   return { ok: false as const, intent, error: "Unknown action." };
 };
 
-export default function ConnectStores() {
-  const { shop, asPrimary, asSecondary } = useLoaderData<typeof loader>();
-  const { plan } = useOutletContext<AppOutletContext>();
+function ConnectSkeleton() {
+  return (
+    <BlockStack gap="500">
+      <BlockStack gap="100">
+        <SkeletonBlock width={200} height={24} />
+        <SkeletonBlock width={360} height={14} />
+      </BlockStack>
+      <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
+        <Card>
+          <BlockStack gap="400">
+            <SkeletonBlock width={180} height={16} />
+            <SkeletonBlock width={280} height={12} />
+            <SkeletonBlock height={72} radius={12} />
+            <SkeletonBlock width={150} height={40} radius={8} />
+          </BlockStack>
+        </Card>
+        <Card>
+          <BlockStack gap="400">
+            <SkeletonBlock width={180} height={16} />
+            <SkeletonBlock width={280} height={12} />
+            <SkeletonBlock height={40} radius={8} />
+            <SkeletonBlock width={120} height={40} radius={8} />
+          </BlockStack>
+        </Card>
+      </InlineGrid>
+    </BlockStack>
+  );
+}
+
+function ConnectBody({ data, plan }: { data: ConnectData; plan: "free" | "pro" }) {
+  const { shop, asPrimary, asSecondary } = data;
   const generateFetcher = useFetcher<typeof action>();
   const connectFetcher = useFetcher<typeof action>();
   const revalidator = useRevalidator();
   const [code, setCode] = useState("");
-  const routeLoading = useRouteLoading();
-
-  if (routeLoading) {
-    return (
-      <AppLayout shop={shop} plan={plan}>
-        <BlockStack gap="500">
-          <BlockStack gap="100">
-            <SkeletonBlock width={200} height={24} />
-            <SkeletonBlock width={360} height={14} />
-          </BlockStack>
-          <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
-            <Card>
-              <BlockStack gap="400">
-                <SkeletonBlock width={180} height={16} />
-                <SkeletonBlock width={280} height={12} />
-                <SkeletonBlock height={72} radius={12} />
-                <SkeletonBlock width={150} height={40} radius={8} />
-              </BlockStack>
-            </Card>
-            <Card>
-              <BlockStack gap="400">
-                <SkeletonBlock width={180} height={16} />
-                <SkeletonBlock width={280} height={12} />
-                <SkeletonBlock height={40} radius={8} />
-                <SkeletonBlock width={120} height={40} radius={8} />
-              </BlockStack>
-            </Card>
-          </InlineGrid>
-        </BlockStack>
-      </AppLayout>
-    );
-  }
 
   const generating = generateFetcher.state !== "idle";
   const connecting = connectFetcher.state !== "idle";
@@ -258,8 +266,7 @@ export default function ConnectStores() {
     connectFetcher.data && !connectFetcher.data.ok ? connectFetcher.data.error : null;
 
   return (
-    <AppLayout shop={shop} plan={plan}>
-      <BlockStack gap="500">
+    <BlockStack gap="500">
         <BlockStack gap="100">
           <Text as="h1" variant="headingXl" fontWeight="bold">
             Connect Stores
@@ -401,7 +408,20 @@ export default function ConnectStores() {
             </BlockStack>
           </Card>
         </InlineGrid>
-      </BlockStack>
+    </BlockStack>
+  );
+}
+
+export default function ConnectStores() {
+  const { data } = useLoaderData<typeof loader>();
+  const { shop, plan } = useOutletContext<AppOutletContext>();
+  return (
+    <AppLayout shop={shop} plan={plan}>
+      <Suspense fallback={<ConnectSkeleton />}>
+        <Await resolve={data}>
+          {(resolved) => <ConnectBody data={resolved} plan={plan} />}
+        </Await>
+      </Suspense>
     </AppLayout>
   );
 }

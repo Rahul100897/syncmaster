@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { defer } from "@remix-run/node";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import {
+  Await,
   useFetcher,
   useLoaderData,
   useNavigate,
@@ -27,7 +29,7 @@ import { createSnapshot, restorePreview, restoreSnapshot, type RestoreDiff } fro
 import { isPro } from "../lib/billing.server";
 import AppLayout from "../components/AppLayout";
 import ProLock from "../components/ProLock";
-import { SkeletonBlock, SkeletonTable, useRouteLoading } from "../components/Skeleton";
+import { SkeletonBlock, SkeletonTable } from "../components/Skeleton";
 import type { AppOutletContext } from "./app";
 
 async function connectionFor(shop: string) {
@@ -37,32 +39,51 @@ async function connectionFor(shop: string) {
   });
 }
 
+interface SnapshotItem {
+  id: string;
+  status: string;
+  itemCount: number;
+  sizeBytes: number;
+  hasFile: boolean;
+  createdAt: string;
+  expiresAt: string;
+}
+
+type SnapshotsData =
+  | { locked: true; connected: false; snapshots: SnapshotItem[] }
+  | { locked: false; connected: boolean; snapshots: SnapshotItem[] };
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-  const pro = await isPro(session.shop);
-  if (!pro) return { locked: true as const, connected: false, snapshots: [] };
-  const connection = await connectionFor(session.shop);
-  const snapshots = connection
-    ? await prisma.snapshot.findMany({
-        where: { connectionId: connection.id },
-        orderBy: { createdAt: "desc" },
-        take: 50,
-      })
-    : [];
-  const now = Date.now();
-  return {
-    locked: false as const,
-    connected: Boolean(connection),
-    snapshots: snapshots.map((s) => ({
-      id: s.id,
-      status: s.expiresAt.getTime() < now ? "expired" : s.status,
-      itemCount: s.itemCount,
-      sizeBytes: s.sizeBytes,
-      hasFile: Boolean(s.fileUrl),
-      createdAt: s.createdAt.toISOString(),
-      expiresAt: s.expiresAt.toISOString(),
-    })),
-  };
+
+  const data: Promise<SnapshotsData> = (async () => {
+    const pro = await isPro(session.shop);
+    if (!pro) return { locked: true as const, connected: false as const, snapshots: [] };
+    const connection = await connectionFor(session.shop);
+    const snapshots = connection
+      ? await prisma.snapshot.findMany({
+          where: { connectionId: connection.id },
+          orderBy: { createdAt: "desc" },
+          take: 50,
+        })
+      : [];
+    const now = Date.now();
+    return {
+      locked: false as const,
+      connected: Boolean(connection),
+      snapshots: snapshots.map((s) => ({
+        id: s.id,
+        status: s.expiresAt.getTime() < now ? "expired" : s.status,
+        itemCount: s.itemCount,
+        sizeBytes: s.sizeBytes,
+        hasFile: Boolean(s.fileUrl),
+        createdAt: s.createdAt.toISOString(),
+        expiresAt: s.expiresAt.toISOString(),
+      })),
+    };
+  })();
+
+  return defer({ data });
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -116,9 +137,15 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 
-export default function Snapshots() {
-  const data = useLoaderData<typeof loader>();
-  const { shop, plan } = useOutletContext<AppOutletContext>();
+function SnapshotsBody({
+  data,
+  shop,
+  plan,
+}: {
+  data: SnapshotsData;
+  shop: string;
+  plan: "free" | "pro";
+}) {
   const navigate = useNavigate();
   const shopify = useAppBridge();
 
@@ -128,7 +155,6 @@ export default function Snapshots() {
 
   const [restoreId, setRestoreId] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
-  const routeLoading = useRouteLoading();
 
   const creating = createFetcher.state !== "idle";
   const restoring = restoreFetcher.state !== "idle";
@@ -170,38 +196,19 @@ export default function Snapshots() {
   const diff: RestoreDiff | null =
     previewFetcher.data?.ok && "diff" in previewFetcher.data ? previewFetcher.data.diff : null;
 
-  if (routeLoading) {
-    return (
-      <AppLayout shop={shop} plan={plan}>
-        <BlockStack gap="500">
-          <InlineStack align="space-between" blockAlign="center">
-            <BlockStack gap="100">
-              <SkeletonBlock width={160} height={24} />
-              <SkeletonBlock width={400} height={14} />
-            </BlockStack>
-            <SkeletonBlock width={170} height={40} radius={8} />
-          </InlineStack>
-          <SkeletonTable rows={5} columns={5} />
-        </BlockStack>
-      </AppLayout>
-    );
-  }
-
   if (data.locked) {
     return (
-      <AppLayout shop={shop} plan={plan}>
-        <BlockStack gap="500">
-          <Text as="h1" variant="headingXl" fontWeight="bold">Snapshots</Text>
-          <ProLock feature="Snapshots & rollback" />
-        </BlockStack>
-      </AppLayout>
+      <BlockStack gap="500">
+        <Text as="h1" variant="headingXl" fontWeight="bold">Snapshots</Text>
+        <ProLock feature="Snapshots & rollback" />
+      </BlockStack>
     );
   }
 
   const { connected, snapshots } = data;
 
   return (
-    <AppLayout shop={shop} plan={plan}>
+    <>
       <BlockStack gap="500">
         <InlineStack align="space-between" blockAlign="center">
           <BlockStack gap="100">
@@ -345,6 +352,35 @@ export default function Snapshots() {
           ) : null}
         </Modal.Section>
       </Modal>
+    </>
+  );
+}
+
+function SnapshotsSkeleton() {
+  return (
+    <BlockStack gap="500">
+      <InlineStack align="space-between" blockAlign="center">
+        <BlockStack gap="100">
+          <SkeletonBlock width={160} height={24} />
+          <SkeletonBlock width={400} height={14} />
+        </BlockStack>
+        <SkeletonBlock width={170} height={40} radius={8} />
+      </InlineStack>
+      <SkeletonTable rows={5} columns={5} />
+    </BlockStack>
+  );
+}
+
+export default function Snapshots() {
+  const { data } = useLoaderData<typeof loader>();
+  const { shop, plan } = useOutletContext<AppOutletContext>();
+  return (
+    <AppLayout shop={shop} plan={plan}>
+      <Suspense fallback={<SnapshotsSkeleton />}>
+        <Await resolve={data}>
+          {(resolved) => <SnapshotsBody data={resolved} shop={shop} plan={plan} />}
+        </Await>
+      </Suspense>
     </AppLayout>
   );
 }
