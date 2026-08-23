@@ -120,6 +120,22 @@ export async function enqueueProductWebhook(
     return;
   }
 
+  // Direction gate — prevents a sync loop: writing to the destination fires a
+  // webhook there, which must NOT propagate back. Defaults to primary→secondary.
+  const rule = await prisma.syncRule.findFirst({
+    where: { connectionId: ctx.connectionId, field: "title" },
+  });
+  const direction = rule?.direction ?? "primary_to_secondary";
+  const sourceIsPrimary = shop === ctx.primaryShop;
+  if (direction === "primary_to_secondary" && !sourceIsPrimary) {
+    console.log(`[webhook] product sync skipped for ${shop} (direction primary→secondary)`);
+    return;
+  }
+  if (direction === "secondary_to_primary" && sourceIsPrimary) {
+    console.log(`[webhook] product sync skipped for ${shop} (direction secondary→primary)`);
+    return;
+  }
+
   const job = await prisma.syncJob.create({
     data: {
       connectionId: ctx.connectionId,
