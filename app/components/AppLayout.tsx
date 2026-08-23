@@ -62,8 +62,44 @@ export default function AppLayout({ shop, plan, children }: AppLayoutProps) {
       <aside className={styles.sidebar}>
         <div className={styles.brand}>
           <div className={styles.brandIcon} aria-label="SyncMaster">
-            <span className={styles.monogramS}>S</span>
-            <span className={styles.monogramM}>M</span>
+            <svg viewBox="0 0 48 48" width="100%" height="100%" fill="none" aria-hidden="true">
+              <defs>
+                <linearGradient id="smSync" x1="6" y1="8" x2="42" y2="40" gradientUnits="userSpaceOnUse">
+                  <stop offset="0" stopColor="#A78BFA" />
+                  <stop offset="0.5" stopColor="#6366F1" />
+                  <stop offset="1" stopColor="#38BDF8" />
+                </linearGradient>
+                <marker
+                  id="smSyncHead"
+                  viewBox="0 0 10 10"
+                  refX="7"
+                  refY="5"
+                  markerWidth="9"
+                  markerHeight="9"
+                  markerUnits="userSpaceOnUse"
+                  orient="auto"
+                >
+                  <path d="M0 0 L10 5 L0 10 z" fill="url(#smSync)" />
+                </marker>
+              </defs>
+              <g stroke="url(#smSync)" strokeWidth="3.4" strokeLinecap="round">
+                <path d="M8 17 A 17 17 0 0 1 37.5 14.5" markerEnd="url(#smSyncHead)" />
+                <path d="M40 31 A 17 17 0 0 1 10.5 33.5" markerEnd="url(#smSyncHead)" />
+              </g>
+              <text
+                x="24"
+                y="25.5"
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill="#ffffff"
+                fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+                fontWeight="800"
+                fontSize="16"
+                letterSpacing="-1"
+              >
+                SM
+              </text>
+            </svg>
           </div>
           <div className={styles.brandText}>
             <span className={styles.brandName}>SyncMaster</span>
