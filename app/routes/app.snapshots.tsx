@@ -155,9 +155,36 @@ function SnapshotsBody({
 
   const [restoreId, setRestoreId] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const creating = createFetcher.state !== "idle";
   const restoring = restoreFetcher.state !== "idle";
+
+  // Download inside the embedded iframe: App Bridge patches window.fetch to add
+  // the session token, so this stays authenticated (no new-tab login screen).
+  const downloadSnapshot = async (id: string) => {
+    setDownloadingId(id);
+    try {
+      const res = await fetch(`/app/snapshots/${id}/download`);
+      if (!res.ok) throw new Error(`Download failed (HTTP ${res.status})`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `snapshot-${id}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      shopify.toast.show("Snapshot downloaded");
+    } catch (e) {
+      shopify.toast.show(e instanceof Error ? e.message : "Download failed", {
+        isError: true,
+      });
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   // Toast on create/restore results.
   useEffect(() => {
@@ -281,8 +308,8 @@ function SnapshotsBody({
                       <InlineStack gap="200" align="end" blockAlign="center">
                         <Button
                           variant="plain"
-                          url={`/app/snapshots/${s.id}/download`}
-                          target="_blank"
+                          onClick={() => downloadSnapshot(s.id)}
+                          loading={downloadingId === s.id}
                           disabled={!s.hasFile || s.status === "expired"}
                         >
                           Download
