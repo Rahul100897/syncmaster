@@ -91,7 +91,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const connection = await connectionFor(session.shop);
   if (!connection) return { ok: false as const, error: "No connected store pair." };
   if (!(await isPro(session.shop)))
-    return { ok: false as const, error: "Snapshots are a Pro feature — upgrade to continue." };
+    return { ok: false as const, error: "Backups are a Pro feature — upgrade to continue." };
 
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
@@ -99,7 +99,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   try {
     if (intent === "create") {
       const snap = await createSnapshot(connection.id);
-      return { ok: true as const, intent, message: `Snapshot created (${snap.itemCount} items).` };
+      return { ok: true as const, intent, message: `Backup created (${snap.itemCount} items).` };
     }
     if (intent === "preview") {
       const diff = await restorePreview(String(form.get("snapshotId")));
@@ -176,7 +176,7 @@ function SnapshotsBody({
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      shopify.toast.show("Snapshot downloaded");
+      shopify.toast.show("Backup downloaded");
     } catch (e) {
       shopify.toast.show(e instanceof Error ? e.message : "Download failed", {
         isError: true,
@@ -226,8 +226,8 @@ function SnapshotsBody({
   if (data.locked) {
     return (
       <BlockStack gap="500">
-        <Text as="h1" variant="headingXl" fontWeight="bold">Snapshots</Text>
-        <ProLock feature="Snapshots & rollback" />
+        <Text as="h1" variant="headingXl" fontWeight="bold">Backups</Text>
+        <ProLock feature="Backups & restore" />
       </BlockStack>
     );
   }
@@ -240,16 +240,16 @@ function SnapshotsBody({
         <InlineStack align="space-between" blockAlign="center">
           <BlockStack gap="100">
             <Text as="h1" variant="headingXl" fontWeight="bold">
-              Snapshots
+              Backups
             </Text>
             <Text as="p" tone="subdued">
-              Point-in-time backups of both stores. Restore any snapshot in one click.
+              Backups of both stores. Restore any backup in one click.
             </Text>
           </BlockStack>
           <createFetcher.Form method="post">
             <input type="hidden" name="intent" value="create" />
             <Button variant="primary" submit loading={creating} disabled={!connected}>
-              Create snapshot now
+              Create backup now
             </Button>
           </createFetcher.Form>
         </InlineStack>
@@ -267,12 +267,12 @@ function SnapshotsBody({
                 </svg>
                 <BlockStack gap="100" inlineAlign="center">
                   <Text as="h3" variant="headingMd">
-                    No snapshots yet
+                    No backups yet
                   </Text>
                   <Text as="p" tone="subdued" alignment="center">
                     {connected
-                      ? "Create a snapshot to back up both stores before you sync."
-                      : "Connect a store pair first, then create your first snapshot."}
+                      ? "Create a backup of both stores before you sync."
+                      : "Connect your stores first, then create your first backup."}
                   </Text>
                 </BlockStack>
                 {!connected ? (
@@ -334,7 +334,7 @@ function SnapshotsBody({
       <Modal
         open={restoreId !== null}
         onClose={() => (restoring ? undefined : setRestoreId(null))}
-        title="Restore from snapshot"
+        title="Restore this backup"
         primaryAction={{
           content: "Restore now",
           destructive: true,
@@ -356,11 +356,11 @@ function SnapshotsBody({
               <Text as="p">
                 This will write <b>{diff.toRestore}</b> product(s) and{" "}
                 <b>{diff.inventoryLevels}</b> inventory level(s) back onto the
-                secondary store from this snapshot.
+                second store from this backup.
               </Text>
               <BlockStack gap="100">
                 <Text as="p" tone="subdued">
-                  • {diff.changedSince} item(s) changed since the snapshot — will be reverted
+                  • {diff.changedSince} item(s) changed since the backup — will be reverted
                 </Text>
                 <Text as="p" tone="subdued">
                   • {diff.unchanged} item(s) unchanged — will be skipped
@@ -368,7 +368,7 @@ function SnapshotsBody({
               </BlockStack>
               <Text as="p" tone="caution">
                 SyncMaster never deletes — items are only created or updated. This
-                cannot be undone except by restoring another snapshot.
+                cannot be undone except by restoring another backup.
               </Text>
               {restoring ? <ProgressBar progress={progress} tone="primary" size="small" /> : null}
             </BlockStack>

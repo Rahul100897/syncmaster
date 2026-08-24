@@ -244,7 +244,7 @@ function QuickActionsPanel({ isPro, navigate }: { isPro: boolean; navigate: (to:
           <Text as="h2" variant="headingMd">Quick Actions</Text>
           <Button fullWidth onClick={() => navigate("/app/connect")}>Connect a store</Button>
           <Button fullWidth onClick={() => navigate("/app/sync/preview")}>Safe Sync preview</Button>
-          <Button fullWidth onClick={() => navigate("/app/jobs")}>View sync jobs</Button>
+          <Button fullWidth onClick={() => navigate("/app/jobs")}>View sync activity</Button>
         </BlockStack>
       </Card>
       <Card>
@@ -277,8 +277,8 @@ function DashboardContent({ d, isPro, navigate }: { d: DashboardData; isPro: boo
       <InlineGrid columns={{ xs: 1, sm: 2, lg: 4 }} gap="400">
         <MetricCard label="Connected Stores" value={String(d.metrics.connectedStores)} accent="#6366F1" icon={<Icon path="M4 4h16v16H4zM8 7h8M8 12h8M8 17h5" />} />
         <MetricCard label="Products Synced" value={d.metrics.productsSynced.toLocaleString()} accent="#22C55E" icon={<Icon path="M20 7l-8-4-8 4 8 4 8-4zM4 7v10l8 4 8-4V7" />} />
-        <MetricCard label="Jobs Today" value={String(d.metrics.jobsToday)} accent="#F59E0B" icon={<Icon path="M22 11.5A10 10 0 1 1 12 2M22 4l-10 10-3-3" />} />
-        <MetricCard label="Last Snapshot" value={lastSnapshotLabel} accent="#0EA5E9" icon={<Icon path="M12 15V3M7 10l5 5 5-5M3 15v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4" />} />
+        <MetricCard label="Syncs Today" value={String(d.metrics.jobsToday)} accent="#F59E0B" icon={<Icon path="M22 11.5A10 10 0 1 1 12 2M22 4l-10 10-3-3" />} />
+        <MetricCard label="Last Backup" value={lastSnapshotLabel} accent="#0EA5E9" icon={<Icon path="M12 15V3M7 10l5 5 5-5M3 15v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4" />} />
       </InlineGrid>
 
       {d.anomalies.length > 0 ? <AnomaliesCard anomalies={d.anomalies} /> : null}

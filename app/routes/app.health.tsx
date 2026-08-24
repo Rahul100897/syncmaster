@@ -50,11 +50,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 function CredBadge({ status }: { status: CredentialStatus }) {
   switch (status) {
     case "valid":
-      return <Badge tone="success">Valid</Badge>;
+      return <Badge tone="success">Connected</Badge>;
     case "expiring":
-      return <Badge tone="warning">Expiring</Badge>;
+      return <Badge tone="warning">Expiring soon</Badge>;
     case "expired":
-      return <Badge tone="critical">Expired</Badge>;
+      return <Badge tone="critical">Disconnected</Badge>;
     default:
       return <Badge>Unknown</Badge>;
   }
@@ -91,8 +91,8 @@ function HealthBody({ data, shop, plan }: { data: HealthData; shop: string; plan
   if (data.locked || !data.weekly) {
     return (
       <BlockStack gap="500">
-        <Text as="h1" variant="headingXl" fontWeight="bold">Sync Health</Text>
-        <ProLock feature="Sync health monitor" />
+        <Text as="h1" variant="headingXl" fontWeight="bold">Connection Status</Text>
+        <ProLock feature="Connection status" />
       </BlockStack>
     );
   }
@@ -104,10 +104,10 @@ function HealthBody({ data, shop, plan }: { data: HealthData; shop: string; plan
       <InlineStack align="space-between" blockAlign="center">
         <BlockStack gap="100">
           <Text as="h1" variant="headingXl" fontWeight="bold">
-            Sync Health
+            Connection Status
           </Text>
           <Text as="p" tone="subdued">
-            Live status per connection, with proactive alerts.
+            See how the connections between your stores are doing.
           </Text>
         </BlockStack>
         <Button onClick={() => revalidator.revalidate()} loading={revalidator.state !== "idle"}>
@@ -123,10 +123,10 @@ function HealthBody({ data, shop, plan }: { data: HealthData; shop: string; plan
           </Text>
           <InlineGrid columns={{ xs: 2, sm: 5 }} gap="300">
             {[
-              { label: "Jobs", value: String(weekly.jobs) },
+              { label: "Syncs", value: String(weekly.jobs) },
               { label: "Completed", value: String(weekly.completed) },
               { label: "Failed", value: String(weekly.failed) },
-              { label: "Anomalies", value: String(weekly.anomalies) },
+              { label: "Flagged", value: String(weekly.anomalies) },
               { label: "Success rate", value: `${weekly.successRate}%` },
             ].map((m) => (
               <BlockStack key={m.label} gap="050">
@@ -146,7 +146,7 @@ function HealthBody({ data, shop, plan }: { data: HealthData; shop: string; plan
         <Card>
           <BlockStack gap="300" inlineAlign="center">
             <Text as="p" tone="subdued">
-              No connections yet. Connect a store pair to start monitoring.
+              No connections yet. Connect your stores to start monitoring.
             </Text>
             <Button variant="primary" onClick={() => navigate("/app/connect")}>
               Connect stores
@@ -162,7 +162,11 @@ function HealthBody({ data, shop, plan }: { data: HealthData; shop: string; plan
                   {c.primaryShop} → {c.secondaryShop ?? "—"}
                 </Text>
                 <Badge tone={c.status === "connected" ? "success" : "critical"}>
-                  {c.status}
+                  {c.status === "connected"
+                    ? "Connected"
+                    : c.status === "disconnected"
+                      ? "Disconnected"
+                      : "Waiting"}
                 </Badge>
               </InlineStack>
 
@@ -207,14 +211,14 @@ function HealthBody({ data, shop, plan }: { data: HealthData; shop: string; plan
                 <BlockStack gap="200">
                   <InlineStack align="space-between" blockAlign="center">
                     <Text as="span" tone="subdued">Success rate (7d)</Text>
-                    <Badge tone={rateTone(c.successRate7d)}>{`${c.successRate7d}% · ${c.jobs7d} jobs`}</Badge>
+                    <Badge tone={rateTone(c.successRate7d)}>{`${c.successRate7d}% · ${c.jobs7d} syncs`}</Badge>
                   </InlineStack>
                   <InlineStack align="space-between" blockAlign="center">
-                    <Text as="span" tone="subdued">Primary credentials</Text>
+                    <Text as="span" tone="subdued">Main store connection</Text>
                     <CredBadge status={c.credentialPrimary} />
                   </InlineStack>
                   <InlineStack align="space-between" blockAlign="center">
-                    <Text as="span" tone="subdued">Secondary credentials</Text>
+                    <Text as="span" tone="subdued">Second store connection</Text>
                     <CredBadge status={c.credentialSecondary} />
                   </InlineStack>
                 </BlockStack>

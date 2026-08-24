@@ -138,17 +138,17 @@ function StatusBadge({ status }: { status: string }) {
       return (
         <InlineStack gap="100" blockAlign="center" wrap={false}>
           <span className={styles.runningDot} />
-          <Badge tone="attention">Running</Badge>
+          <Badge tone="attention">In progress</Badge>
         </InlineStack>
       );
     case "completed":
-      return <Badge tone="success">Completed</Badge>;
+      return <Badge tone="success">Done</Badge>;
     case "failed":
-      return <Badge tone="critical">Failed</Badge>;
+      return <Badge tone="critical">Failed — needs attention</Badge>;
     case "anomaly":
       return <Badge tone="warning">Anomaly</Badge>;
     default:
-      return <Badge>Pending</Badge>;
+      return <Badge>Waiting</Badge>;
   }
 }
 
@@ -157,7 +157,7 @@ function EventStatusBadge({ status }: { status: string }) {
     case "success":
       return <Badge tone="success">Success</Badge>;
     case "failed":
-      return <Badge tone="critical">Failed</Badge>;
+      return <Badge tone="critical">Failed — needs attention</Badge>;
     case "anomaly":
       return <Badge tone="warning">Anomaly</Badge>;
     default:
@@ -171,6 +171,28 @@ function duration(startedAt: string, completedAt: string | null): string {
   if (ms < 1000) return `${ms}ms`;
   if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
   return `${Math.round(ms / 60000)}m`;
+}
+
+/** Merchant-friendly labels for the stored job type / trigger values. */
+function typeLabel(t: string): string {
+  switch (t) {
+    case "migration": return "Product copy";
+    case "product": return "Product update";
+    case "inventory": return "Inventory update";
+    case "restore": return "Backup restore";
+    case "metafield": return "Custom data";
+    case "metaobject": return "Custom template";
+    default: return t;
+  }
+}
+
+function triggerLabel(t: string): string {
+  switch (t) {
+    case "manual": return "You";
+    case "webhook": return "Automatic";
+    case "schedule": return "Scheduled";
+    default: return t;
+  }
 }
 
 function JobsSkeleton() {
@@ -218,7 +240,7 @@ function JobsBody({ data }: { data: JobsData }) {
     >
       <IndexTable.Cell>
         <Text as="span" variant="bodyMd" fontWeight="medium">
-          {job.type}
+          {typeLabel(job.type)}
         </Text>
       </IndexTable.Cell>
       <IndexTable.Cell>
@@ -230,7 +252,7 @@ function JobsBody({ data }: { data: JobsData }) {
           {job.failedItems ? ` (${job.failedItems} failed)` : ""}
         </Text>
       </IndexTable.Cell>
-      <IndexTable.Cell>{job.triggeredBy}</IndexTable.Cell>
+      <IndexTable.Cell>{triggerLabel(job.triggeredBy)}</IndexTable.Cell>
       <IndexTable.Cell>
         {formatDistanceToNow(new Date(job.startedAt), { addSuffix: true })}
       </IndexTable.Cell>
@@ -243,10 +265,10 @@ function JobsBody({ data }: { data: JobsData }) {
         <InlineStack align="space-between" blockAlign="center">
           <BlockStack gap="100">
             <Text as="h1" variant="headingXl" fontWeight="bold">
-              Sync Jobs
+              Sync Activity
             </Text>
             <Text as="p" tone="subdued">
-              Every migration and real-time sync run. Click a job to see its events.
+              Every sync that has run. Click one to see the details.
             </Text>
           </BlockStack>
           <Button
@@ -268,7 +290,7 @@ function JobsBody({ data }: { data: JobsData }) {
                   <rect x="22" y="62" width="44" height="6" rx="3" fill="#DBE1FF" />
                 </svg>
                 <BlockStack gap="100" inlineAlign="center">
-                  <Text as="h3" variant="headingMd">No sync jobs yet</Text>
+                  <Text as="h3" variant="headingMd">No syncs yet</Text>
                   <Text as="p" tone="subdued" alignment="center">
                     Jobs appear here when you run a migration or a real-time sync fires.
                   </Text>
@@ -289,7 +311,7 @@ function JobsBody({ data }: { data: JobsData }) {
                 { title: "Type" },
                 { title: "Status" },
                 { title: "Items" },
-                { title: "Triggered by" },
+                { title: "Started by" },
                 { title: "Started" },
                 { title: "Duration" },
               ]}
@@ -304,7 +326,7 @@ function JobsBody({ data }: { data: JobsData }) {
             <Box padding="400">
               <InlineStack align="space-between" blockAlign="center">
                 <Text as="h2" variant="headingMd">
-                  {selected.type} job · {selected.events.length} events
+                  {typeLabel(selected.type)} · {selected.events.length} steps
                 </Text>
                 <StatusBadge status={selected.status} />
               </InlineStack>

@@ -102,11 +102,11 @@ export async function getHealth(shop: string): Promise<HealthReport> {
     if (recentJobs.length === 3 && recentJobs.every((j) => j.status === "failed"))
       alerts.push("Sync has failed 3 times in a row.");
     if (credentialPrimary === "expiring" || credentialSecondary === "expiring")
-      alerts.push("API credentials are expiring soon.");
+      alerts.push("Your store connection is expiring soon — reconnect to keep syncing.");
     if (credentialPrimary === "expired" || credentialSecondary === "expired")
-      alerts.push("API credentials have expired — reconnect the store.");
-    if (anomalies7d > 0) alerts.push(`${anomalies7d} anomaly(s) detected this week.`);
-    if (c.status !== "connected") alerts.push("Store pair is not fully connected.");
+      alerts.push("Your store connection has expired — reconnect to keep syncing.");
+    if (anomalies7d > 0) alerts.push(`${anomalies7d} change(s) flagged for review this week.`);
+    if (c.status !== "connected") alerts.push("Your stores aren't fully connected.");
 
     health.push({
       connectionId: c.id,

@@ -28,22 +28,22 @@ const FIELDS = [
   { key: "description", label: "Description" },
   { key: "images", label: "Images" },
   { key: "price", label: "Price" },
-  { key: "compareAtPrice", label: "Compare-at Price" },
+  { key: "compareAtPrice", label: "Sale / Compare Price" },
   { key: "inventory", label: "Inventory" },
   { key: "tags", label: "Tags" },
   { key: "vendor", label: "Vendor" },
   { key: "type", label: "Type" },
-  { key: "metafields", label: "Metafields" },
-  { key: "metaobjects", label: "Metaobjects" },
+  { key: "metafields", label: "Custom Data (Metafields)" },
+  { key: "metaobjects", label: "Custom Templates (Metaobjects)" },
   { key: "collections", label: "Collections" },
   { key: "seoTitle", label: "SEO Title" },
   { key: "seoDescription", label: "SEO Description" },
 ] as const;
 
 const DIRECTIONS = [
-  { label: "Primary → Secondary", value: "primary_to_secondary" },
-  { label: "Secondary → Primary", value: "secondary_to_primary" },
-  { label: "Two-way", value: "two_way" },
+  { label: "Store 1 controls this", value: "primary_to_secondary" },
+  { label: "Store 2 controls this", value: "secondary_to_primary" },
+  { label: "Both stores update each other", value: "two_way" },
 ];
 
 const ROUNDINGS = [
@@ -220,8 +220,8 @@ function RulesBody({ data, shop, plan }: { data: RulesData; shop: string; plan: 
     return (
       <BlockStack gap="500">
         <Text as="h1" variant="headingXl" fontWeight="bold">
-          Sync Rules
-        </Text>
+              What to sync
+            </Text>
         <Card>
           <BlockStack gap="300" inlineAlign="center">
             <Text as="p" tone="subdued">
@@ -246,14 +246,15 @@ function RulesBody({ data, shop, plan }: { data: RulesData; shop: string; plan: 
         <InlineStack align="space-between" blockAlign="center">
           <BlockStack gap="100">
             <Text as="h1" variant="headingXl" fontWeight="bold">
-              Sync Rules
+              What to sync
             </Text>
             <Text as="p" tone="subdued">
-              Choose exactly what syncs, in which direction, per field.
+              Choose what information gets copied between your stores, and which
+              store controls each one.
             </Text>
           </BlockStack>
           <Button variant="primary" onClick={save} loading={saving}>
-            Save rules
+            Save sync settings
           </Button>
         </InlineStack>
 

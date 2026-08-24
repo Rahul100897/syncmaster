@@ -39,9 +39,9 @@ export default function App() {
           Dashboard
         </Link>
         <Link to="/app/connect">Connect Stores</Link>
-        <Link to="/app/rules">Sync Rules</Link>
-        <Link to="/app/jobs">Jobs</Link>
-        <Link to="/app/snapshots">Snapshots</Link>
+        <Link to="/app/rules">What to Sync</Link>
+        <Link to="/app/jobs">Sync Activity</Link>
+        <Link to="/app/snapshots">Backups</Link>
         <Link to="/app/analytics">Analytics</Link>
         <Link to="/app/activity">Activity Log</Link>
         <Link to="/app/settings">Settings</Link>

@@ -32,7 +32,7 @@ export default function Privacy() {
         SyncMaster stores only what is needed to operate the sync engine:
       </p>
       <ul>
-        <li>Shop domains and OAuth access tokens for the stores you connect.</li>
+        <li>Store addresses and the secure access keys needed to connect your stores.</li>
         <li>
           Sync configuration you create (connections, rules, schedules, payout
           splits).
